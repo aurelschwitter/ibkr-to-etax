@@ -1,0 +1,76 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+
+# Visual Studio Code
+.vscode/
+
+# Rider
+.idea/
+*.sln.iml
+
+# JetBrains ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+packages/
+project.lock.json
+project.assets.json
+.nuget/
+
+# npm/node (if present)
+node_modules/
+
+# Test results / coverage
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+
+# Logs
+*.log
+
+# Mono
+*.pidb
+*.userprefs
+
+# Rider / VS caches
+.idea/
+*.iml
+
+# Azure / publish artifacts
+*.Publish.xml
+*.azurePubxml
+
+# MSBuild generated files
+*.Builds
+*.ilk
+*.meta
+*.obj
+*.pch
+*.tlog
+
+# Rider caches and local settings
+.idea/
+.idea/*
+
+# Packaging
+*.zip
+*.7z
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
