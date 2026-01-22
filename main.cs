@@ -33,7 +33,7 @@ namespace IbkrToEtax
 
                 // Extract account ID from XML
                 var accountInfo = doc.Descendants("AccountInformation").FirstOrDefault();
-                string accountId = (string?)accountInfo?.Attribute("accountId");
+                string accountId = accountInfo?.Attribute("accountId")?.Value ?? "";
 
                 // check that there is a account id in the xml
                 if (string.IsNullOrEmpty(accountId))
@@ -74,23 +74,49 @@ namespace IbkrToEtax
                 List<XElement> withholdingTax) ParseIbkrData(XDocument doc, string accountId)
         {
             var cashTransactions = doc.Descendants("CashTransaction")
-                .Where(ct => (string)ct.Attribute("accountId") == accountId)
+                .Where(ct => (string?)ct.Attribute("accountId") == accountId)
                 .ToList();
 
             return (
                 openPositions: doc.Descendants("OpenPosition")
-                    .Where(op => (string)op.Attribute("levelOfDetail") == LEVEL_SUMMARY)
+                    .Where(op => (string?)op.Attribute("levelOfDetail") == LEVEL_SUMMARY)
                     .ToList(),
                 trades: doc.Descendants("Trade")
-                    .Where(t => (string)t.Attribute("accountId") == accountId)
+                    .Where(t => (string?)t.Attribute("accountId") == accountId)
                     .ToList(),
                 dividends: cashTransactions
-                    .Where(ct => (string)ct.Attribute("type") == "Dividends")
+                    .Where(ct => (string?)ct.Attribute("type") == "Dividends")
                     .ToList(),
                 withholdingTax: cashTransactions
-                    .Where(ct => (string)ct.Attribute("type") == "Withholding Tax")
+                    .Where(ct => (string?)ct.Attribute("type") == "Withholding Tax")
                     .ToList()
             );
+        }
+
+        static (DateTime periodFrom, DateTime periodTo, int taxYear) ExtractDateRange(List<XElement> flexStatements)
+        {
+            var fromDate = flexStatements
+                .Select(fs => (string?)fs.Attribute("fromDate"))
+                .Where(d => !string.IsNullOrEmpty(d))
+                .Select(d => DateTime.Parse(d!))
+                .OrderBy(d => d)
+                .FirstOrDefault();
+
+            var toDate = flexStatements
+                .Select(fs => (string?)fs.Attribute("toDate"))
+                .Where(d => !string.IsNullOrEmpty(d))
+                .Select(d => DateTime.Parse(d!))
+                .OrderByDescending(d => d)
+                .FirstOrDefault();
+
+            if (fromDate == default || toDate == default)
+            {
+                // Fallback to current year
+                int currentYear = DateTime.Now.Year;
+                return (new DateTime(currentYear, 1, 1), new DateTime(currentYear, 12, 31), currentYear);
+            }
+
+            return (fromDate, toDate, toDate.Year);
         }
 
         static void PrintDataLoadSummary(List<XElement> openPositions, List<XElement> trades,
@@ -102,8 +128,8 @@ namespace IbkrToEtax
 
             if (accountInfo != null)
             {
-                string accountId = (string)accountInfo.Attribute("accountId") ?? "Unknown";
-                string accountName = (string)accountInfo.Attribute("name") ?? "Unknown";
+                string accountId = (string?)accountInfo.Attribute("accountId") ?? "Unknown";
+                string accountName = (string?)accountInfo.Attribute("name") ?? "Unknown";
                 Console.WriteLine($"Account: {accountId} - {accountName}");
             }
         }
@@ -112,13 +138,30 @@ namespace IbkrToEtax
 
         #region Statement Building
 
+        static string GenerateEchId(string accountId, DateTime date, int sequenceNumber = 1)
+        {
+            // eCH-0196 Section 2.1: ID format
+            // CH (country) + 00000 (org) + 01 (page) + {accountId 14 chars} + {YYYYMMDD} + {seq 2 digits}
+            string countryCode = "CH";
+            string organizationId = "00000"; // Placeholder - should be clearing number or UID
+            string pageNumber = "01";
+            string customerNumber = accountId.PadLeft(14, '0');
+            if (customerNumber.Length > 14)
+                customerNumber = customerNumber.Substring(customerNumber.Length - 14);
+            string dateStr = date.ToString("yyyyMMdd");
+            string seqStr = sequenceNumber.ToString("D2");
+            
+            // Must start with alphanumeric (xs:ID requirement)
+            return $"{countryCode}{organizationId}{pageNumber}{customerNumber}{dateStr}{seqStr}";
+        }
+
         static EchTaxStatement BuildEchTaxStatement(List<XElement> openPositions, List<XElement> trades,
                                                      List<XElement> dividends, List<XElement> withholdingTax,
                                                      string accountId, int taxYear, DateTime periodFrom, DateTime periodTo)
         {
             var statement = new EchTaxStatement
             {
-                Id = $"TS-{taxYear}",
+                Id = GenerateEchId(accountId, periodTo),
                 TaxPeriod = taxYear,
                 PeriodFrom = periodFrom,
                 PeriodTo = periodTo,
@@ -131,8 +174,10 @@ namespace IbkrToEtax
 
             // Process each position
             var positionsBySymbol = openPositions
-                .GroupBy(p => (string)p.Attribute("symbol"))
-                .ToDictionary(g => g.Key, g => g.First());
+                .Select(p => new { Symbol = (string?)p.Attribute("symbol"), Position = p })
+                .Where(x => !string.IsNullOrEmpty(x.Symbol))
+                .GroupBy(x => x.Symbol!)
+                .ToDictionary(g => g.Key, g => g.First().Position);
 
             int positionId = 1;
             foreach (var (symbol, position) in positionsBySymbol)
@@ -151,17 +196,17 @@ namespace IbkrToEtax
             var security = new EchSecurity
             {
                 PositionId = positionId,
-                Isin = (string)position.Attribute("isin") ?? "",
-                Country = MapCountry((string)position.Attribute("issuerCountryCode")),
-                Currency = (string)position.Attribute("currency") ?? "",
-                SecurityCategory = MapSecurityCategory((string)position.Attribute("assetCategory")),
-                SecurityName = (string)position.Attribute("description") ?? symbol,
+                Isin = (string?)position.Attribute("isin") ?? "",
+                Country = MapCountry((string?)position.Attribute("issuerCountryCode") ?? "CH"),
+                Currency = (string?)position.Attribute("currency") ?? "",
+                SecurityCategory = MapSecurityCategory((string?)position.Attribute("assetCategory") ?? "STK"),
+                SecurityName = (string?)position.Attribute("description") ?? symbol,
                 TaxValue = new EchTaxValue
                 {
                     ReferenceDate = new DateTime(taxYear, 12, 31),
-                    Quantity = ParseDecimal((string)position.Attribute("position")),
-                    UnitPrice = ParseDecimal((string)position.Attribute("markPrice")),
-                    Value = ParseDecimal((string)position.Attribute("positionValueInBase"))
+                    Quantity = ParseDecimal((string?)position.Attribute("position")),
+                    UnitPrice = ParseDecimal((string?)position.Attribute("markPrice")),
+                    Value = ParseDecimal((string?)position.Attribute("positionValueInBase"))
                 }
             };
 
@@ -174,18 +219,21 @@ namespace IbkrToEtax
         static void AddTradesAsStockMutations(EchSecurity security, string symbol, List<XElement> trades)
         {
             var symbolTrades = trades
-                .Where(t => (string)t.Attribute("symbol") == symbol)
-                .OrderBy(t => (string)t.Attribute("tradeDate"));
+                .Where(t => (string?)t.Attribute("symbol") == symbol)
+                .OrderBy(t => (string?)t.Attribute("tradeDate") ?? "");
 
             foreach (var trade in symbolTrades)
             {
+                var tradeDateStr = (string?)trade.Attribute("tradeDate");
+                if (string.IsNullOrEmpty(tradeDateStr)) continue;
+
                 security.Stocks.Add(new EchStock
                 {
-                    ReferenceDate = DateTime.Parse((string)trade.Attribute("tradeDate")),
+                    ReferenceDate = DateTime.Parse(tradeDateStr),
                     IsMutation = true,
-                    Quantity = ParseDecimal((string)trade.Attribute("quantity")),
-                    UnitPrice = ParseDecimal((string)trade.Attribute("tradePrice")),
-                    Value = Math.Abs(ParseDecimal((string)trade.Attribute("proceeds")))
+                    Quantity = ParseDecimal((string?)trade.Attribute("quantity")),
+                    UnitPrice = ParseDecimal((string?)trade.Attribute("tradePrice")),
+                    Value = Math.Abs(ParseDecimal((string?)trade.Attribute("proceeds")))
                 });
             }
         }
@@ -195,15 +243,15 @@ namespace IbkrToEtax
         {
             // Deduplicate by actionID to handle multiple FlexStatement periods
             var symbolDividends = dividends
-                .Where(d => (string)d.Attribute("symbol") == symbol)
-                .GroupBy(d => (string)d.Attribute("actionID"))
+                .Where(d => (string?)d.Attribute("symbol") == symbol)
+                .GroupBy(d => (string?)d.Attribute("actionID") ?? "")
                 .Select(g => g.First())
                 .ToList();
 
             foreach (var dividend in symbolDividends)
             {
-                string settleDate = (string)dividend.Attribute("settleDate") ?? "";
-                decimal netAmount = ParseDecimal((string)dividend.Attribute("amount"));
+                string settleDate = (string?)dividend.Attribute("settleDate") ?? "";
+                decimal netAmount = ParseDecimal((string?)dividend.Attribute("amount"));
 
                 // Skip reversals
                 if (netAmount <= 0) continue;
@@ -215,7 +263,7 @@ namespace IbkrToEtax
                 security.Payments.Add(new EchPayment
                 {
                     PaymentDate = DateTime.Parse(settleDate),
-                    ExDate = ParseNullableDate((string)dividend.Attribute("exDate")),
+                    ExDate = ParseNullableDate((string?)dividend.Attribute("exDate")),
                     Quantity = 0,
                     Amount = grossAmountCHF,
                     GrossRevenueA = 0,  // Swiss securities
@@ -228,8 +276,8 @@ namespace IbkrToEtax
         static decimal FindMatchingWithholdingTax(string symbol, string settleDate, List<XElement> withholdingTax)
         {
             var taxTransaction = withholdingTax.FirstOrDefault(wt =>
-                (string)wt.Attribute("symbol") == symbol &&
-                (string)wt.Attribute("settleDate") == settleDate);
+                (string?)wt.Attribute("symbol") == symbol &&
+                (string?)wt.Attribute("settleDate") == settleDate);
 
             return taxTransaction != null ? Math.Abs(ConvertToCHF(taxTransaction)) : 0;
         }
@@ -259,19 +307,19 @@ namespace IbkrToEtax
             Console.WriteLine("Dividends + Withholding Tax per Currency:");
 
             var dividendsByCurrency = dividends
-                .GroupBy(d => (string)d.Attribute("currency"))
+                .GroupBy(d => (string?)d.Attribute("currency") ?? "")
                 .Select(g => new
                 {
                     Currency = g.Key,
-                    TotalDividends = g.Sum(d => ParseDecimal((string)d.Attribute("amount")))
+                    TotalDividends = g.Sum(d => ParseDecimal((string?)d.Attribute("amount")))
                 }).ToList();
 
             var taxByCurrency = withholdingTax
-                .GroupBy(wt => (string)wt.Attribute("currency"))
+                .GroupBy(wt => (string?)wt.Attribute("currency") ?? "")
                 .Select(g => new
                 {
                     Currency = g.Key,
-                    TotalTax = Math.Abs(g.Sum(wt => ParseDecimal((string)wt.Attribute("amount"))))
+                    TotalTax = Math.Abs(g.Sum(wt => ParseDecimal((string?)wt.Attribute("amount"))))
                 }).ToList();
 
             foreach (var curr in dividendsByCurrency)
@@ -294,8 +342,8 @@ namespace IbkrToEtax
         static void PrintAccountValues(XDocument doc, string accountId)
         {
             var equitySummaries = doc.Descendants("EquitySummaryByReportDateInBase")
-                .Where(e => (string)e.Attribute("accountId") == accountId)
-                .OrderBy(e => (string)e.Attribute("reportDate"))
+                .Where(e => (string?)e.Attribute("accountId") == accountId)
+                .OrderBy(e => (string?)e.Attribute("reportDate") ?? "")
                 .ToList();
 
             var startingSummary = equitySummaries.FirstOrDefault();
@@ -303,8 +351,8 @@ namespace IbkrToEtax
 
             if (startingSummary != null && endingSummary != null)
             {
-                decimal startingValue = ParseDecimal((string)startingSummary.Attribute("total"));
-                decimal endingValue = ParseDecimal((string)endingSummary.Attribute("total"));
+                decimal startingValue = ParseDecimal((string?)startingSummary.Attribute("total"));
+                decimal endingValue = ParseDecimal((string?)endingSummary.Attribute("total"));
 
                 Console.WriteLine("Account Value Summary:");
                 Console.WriteLine($"  Starting Value: {startingValue:F2} CHF");
@@ -319,18 +367,18 @@ namespace IbkrToEtax
         {
             // Mark-to-Market
             var perfSummary = doc.Descendants("FIFOPerformanceSummaryUnderlying")
-                .FirstOrDefault(p => (string)p.Attribute("description") == "Total (All Assets)");
+                .FirstOrDefault(p => (string?)p.Attribute("description") == "Total (All Assets)");
             if (perfSummary != null)
             {
-                decimal mtmPnl = ParseDecimal((string)perfSummary.Attribute("totalUnrealizedPnl"));
+                decimal mtmPnl = ParseDecimal((string?)perfSummary.Attribute("totalUnrealizedPnl"));
                 Console.WriteLine($"Mark-to-Market P&L: {mtmPnl:F2} CHF");
             }
 
             // Deposits & Withdrawals
             var depositsWithdrawals = doc.Descendants("CashTransaction")
-                .Where(ct => (string)ct.Attribute("type") == "Deposits/Withdrawals" &&
-                             (string)ct.Attribute("accountId") == accountId)
-                .Sum(ct => ParseDecimal((string)ct.Attribute("amount")));
+                .Where(ct => (string?)ct.Attribute("type") == "Deposits/Withdrawals" &&
+                             (string?)ct.Attribute("accountId") == accountId)
+                .Sum(ct => ParseDecimal((string?)ct.Attribute("amount")));
             Console.WriteLine($"Deposits & Withdrawals: {depositsWithdrawals:F2} CHF");
 
             // Dividends & Tax
@@ -341,39 +389,39 @@ namespace IbkrToEtax
 
             // Change in Dividend Accrual
             var equitySummaries = doc.Descendants("EquitySummaryByReportDateInBase")
-                .Where(e => (string)e.Attribute("accountId") == accountId)
-                .OrderBy(e => (string)e.Attribute("reportDate"))
+                .Where(e => (string?)e.Attribute("accountId") == accountId)
+                .OrderBy(e => (string?)e.Attribute("reportDate") ?? "")
                 .ToList();
 
             if (equitySummaries.Count >= 2)
             {
-                decimal startingAccruals = ParseDecimal((string)equitySummaries.First().Attribute("dividendAccruals"));
-                decimal endingAccruals = ParseDecimal((string)equitySummaries.Last().Attribute("dividendAccruals"));
+                decimal startingAccruals = ParseDecimal((string?)equitySummaries.First().Attribute("dividendAccruals"));
+                decimal endingAccruals = ParseDecimal((string?)equitySummaries.Last().Attribute("dividendAccruals"));
                 Console.WriteLine($"Change in Dividend Accrual: {(endingAccruals - startingAccruals):F2} CHF");
             }
 
             // Commissions
             var totalCommissions = trades
-                .Where(t => (string)t.Attribute("accountId") == accountId &&
-                            (string)t.Attribute("assetCategory") != "CASH")
+                .Where(t => (string?)t.Attribute("accountId") == accountId &&
+                            (string?)t.Attribute("assetCategory") != "CASH")
                 .Sum(t =>
                 {
-                    decimal ibComm = ParseDecimal((string)t.Attribute("ibCommission"));
-                    decimal fx = ParseDecimal((string)t.Attribute("fxRateToBase"));
+                    decimal ibComm = ParseDecimal((string?)t.Attribute("ibCommission"));
+                    decimal fx = ParseDecimal((string?)t.Attribute("fxRateToBase"));
                     return Math.Abs(ibComm * fx);
                 });
             Console.WriteLine($"Commissions: {totalCommissions:F2} CHF");
 
             // Sales Tax
             var transactionTaxes = doc.Descendants("TransactionTax")
-                .Where(tt => (string)tt.Attribute("accountId") == accountId)
-                .Sum(tt => ParseDecimal((string)tt.Attribute("taxInBase")));
+                .Where(tt => (string?)tt.Attribute("accountId") == accountId)
+                .Sum(tt => ParseDecimal((string?)tt.Attribute("taxInBase")));
             Console.WriteLine($"Sales Tax: {transactionTaxes:F2} CHF");
 
             // FX Translations
             if (perfSummary != null)
             {
-                decimal fxPnl = ParseDecimal((string)perfSummary.Attribute("totalFxPnl"));
+                decimal fxPnl = ParseDecimal((string?)perfSummary.Attribute("totalFxPnl"));
                 Console.WriteLine($"Other FX Translations: {fxPnl:F2} CHF");
             }
         }
@@ -394,19 +442,30 @@ namespace IbkrToEtax
             Console.WriteLine($"  - {depot.Securities.Count} securities");
             Console.WriteLine($"  - {depot.Securities.Sum(s => s.Stocks.Count)} stock mutations");
             Console.WriteLine($"  - {depot.Securities.Sum(s => s.Payments.Count)} dividend payments");
+
+            // Generate PDF with barcodes
+            try
+            {
+                string pdfPath = "eCH-0196-output.pdf";
+                PdfBarcodeGenerator.GeneratePdfWithBarcodes(outputPath, pdfPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not generate PDF with barcodes: {ex.Message}");
+            }
         }
 
         #endregion
 
         #region Utility Methods
 
-        static decimal ParseDecimal(string value)
+        static decimal ParseDecimal(string? value)
         {
             if (string.IsNullOrEmpty(value)) return 0;
             return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var result) ? result : 0;
         }
 
-        static DateTime? ParseNullableDate(string value)
+        static DateTime? ParseNullableDate(string? value)
         {
             if (string.IsNullOrEmpty(value)) return null;
             return DateTime.TryParse(value, out var result) ? result : null;
@@ -438,8 +497,8 @@ namespace IbkrToEtax
 
         static decimal ConvertToCHF(XElement transaction)
         {
-            decimal amount = ParseDecimal((string)transaction.Attribute("amount"));
-            decimal fxRate = ParseDecimal((string)transaction.Attribute("fxRateToBase"));
+            decimal amount = ParseDecimal((string?)transaction.Attribute("amount"));
+            decimal fxRate = ParseDecimal((string?)transaction.Attribute("fxRateToBase"));
             return amount * fxRate;
         }
 
