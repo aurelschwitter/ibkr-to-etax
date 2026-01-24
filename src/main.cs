@@ -75,6 +75,14 @@ namespace IbkrToEtax
                 var accountInfo = doc.Descendants("AccountInformation").FirstOrDefault();
                 string accountId = accountInfo?.Attribute("accountId")?.Value ?? "";
 
+                // Extract canton from state attribute (format: "CH-ZH")
+                string state = accountInfo?.Attribute("state")?.Value ?? "";
+                string canton = "ZH"; // Default canton
+                if (!string.IsNullOrEmpty(state) && state.StartsWith("CH-"))
+                {
+                    canton = state[3..]; // Extract "ZH" from "CH-ZH"
+                }
+
                 // check that there is a account id in the xml
                 if (string.IsNullOrEmpty(accountId))
                 {
@@ -91,7 +99,7 @@ namespace IbkrToEtax
                 IbkrDataParser.PrintDataLoadSummary(openPositions, trades, dividends, withholdingTax, accountInfo);
 
                 // Build eCH tax statement
-                var echStatement = EchStatementBuilder.BuildEchTaxStatement(openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo);
+                var echStatement = EchStatementBuilder.BuildEchTaxStatement(openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo, canton);
 
                 // Display financial summary
                 FinancialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);

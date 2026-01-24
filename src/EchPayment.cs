@@ -11,5 +11,6 @@ namespace IbkrToEtax
         public decimal GrossRevenueA { get; set; }
         public decimal GrossRevenueB { get; set; }
         public decimal WithHoldingTaxClaim { get; set; }
+        public decimal AdditionalWithHoldingTaxUSA { get; set; }
     }
 }

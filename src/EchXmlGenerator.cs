@@ -36,7 +36,7 @@ namespace IbkrToEtax
                     new XAttribute("totalWithHoldingTaxClaim", statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.WithHoldingTaxClaim)))),
                     new XAttribute("totalLumpSumTaxCredit", 0),
                     new XAttribute("totalNonRecoverableTax", 0),
-                    new XAttribute("totalAdditionalWithHoldingTaxUSA", 0),
+                    new XAttribute("totalAdditionalWithHoldingTaxUSA", statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.AdditionalWithHoldingTaxUSA)))),
                     new XAttribute("totalGrossRevenueIUP", 0),
                     new XAttribute("totalGrossRevenueConversion", 0),
 
@@ -72,7 +72,8 @@ namespace IbkrToEtax
                                 new XAttribute("amount", payment.Amount),
                                 new XAttribute("grossRevenueA", payment.GrossRevenueA),
                                 new XAttribute("grossRevenueB", payment.GrossRevenueB),
-                                new XAttribute("withHoldingTaxClaim", payment.WithHoldingTaxClaim)),
+                                new XAttribute("withHoldingTaxClaim", payment.WithHoldingTaxClaim),
+                                payment.AdditionalWithHoldingTaxUSA > 0 ? new XAttribute("additionalWithHoldingTaxUSA", payment.AdditionalWithHoldingTaxUSA) : null),
 
                             from stock in sec.Stocks
                             select new XElement(ns + "stock",

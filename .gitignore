@@ -70,12 +70,11 @@ coverage/
 *.zip
 *.7z
 
+# Generated output files
+eCH-0196-output.xml
+eCH-0196-output.pdf
+
 # OS generated files
 .DS_Store
 Thumbs.db
 desktop.ini
-
-
-# do not include Input / Output files
-*.xml
-*.pdf

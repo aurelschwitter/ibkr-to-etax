@@ -7,8 +7,6 @@ namespace IbkrToEtax
 {
     public static class EchStatementBuilder
     {
-        private const string CANTON = "ZH";
-
         public static string GenerateEchId(string accountId, DateTime date, int sequenceNumber = 1)
         {
             // eCH-0196 Section 2.1: ID format
@@ -28,7 +26,7 @@ namespace IbkrToEtax
 
         public static EchTaxStatement BuildEchTaxStatement(List<XElement> openPositions, List<XElement> trades,
                                                      List<XElement> dividends, List<XElement> withholdingTax,
-                                                     string accountId, int taxYear, DateTime periodFrom, DateTime periodTo)
+                                                     string accountId, int taxYear, DateTime periodFrom, DateTime periodTo, string canton = "ZH")
         {
             var statement = new EchTaxStatement
             {
@@ -36,7 +34,7 @@ namespace IbkrToEtax
                 TaxPeriod = taxYear,
                 PeriodFrom = periodFrom,
                 PeriodTo = periodTo,
-                Canton = CANTON,
+                Canton = canton,
                 ClientNumber = accountId
             };
 
@@ -131,6 +129,14 @@ namespace IbkrToEtax
                 decimal taxAmountCHF = FindMatchingWithholdingTax(symbol, settleDate, withholdingTax);
                 decimal grossAmountCHF = netAmountCHF + taxAmountCHF;
 
+                // Calculate additional withholding tax for USA (15% of gross amount for US securities)
+                decimal additionalWithholdingTaxUSA = 0;
+                if (security.Country == "US")
+                {
+                    // US tax treaty with Switzerland: 15% withholding on dividends
+                    additionalWithholdingTaxUSA = grossAmountCHF * 0.15m;
+                }
+
                 security.Payments.Add(new EchPayment
                 {
                     PaymentDate = DateTime.Parse(settleDate),
@@ -139,7 +145,8 @@ namespace IbkrToEtax
                     Amount = grossAmountCHF,
                     GrossRevenueA = 0,  // Swiss securities
                     GrossRevenueB = grossAmountCHF,  // Foreign securities
-                    WithHoldingTaxClaim = taxAmountCHF
+                    WithHoldingTaxClaim = taxAmountCHF,
+                    AdditionalWithHoldingTaxUSA = additionalWithholdingTaxUSA
                 });
             }
         }

@@ -229,11 +229,20 @@ namespace IbkrToEtax
                     using var bitmap = SKBitmap.Decode(stream);
                     if (bitmap != null)
                     {
-                        // Try reading barcode
+                        // Try reading single barcode first
                         var result = reader.Decode(bitmap);
                         if (result != null)
                         {
                             results.Add(result);
+                        }
+                        else
+                        {
+                            // Try reading multiple barcodes (in case image contains multiple codes)
+                            var multiResults = reader.DecodeMultiple(bitmap);
+                            if (multiResults != null && multiResults.Length > 0)
+                            {
+                                results.AddRange(multiResults);
+                            }
                         }
                     }
                 }
@@ -370,8 +379,10 @@ namespace IbkrToEtax
                 var page = pdfDocument.GetPage(pageNum);
                 var barcodes = ExtractBarcodesFromPage(page);
 
-                var pdf417Barcode = barcodes.FirstOrDefault(b => b.BarcodeFormat == BarcodeFormat.PDF_417);
-                if (pdf417Barcode != null)
+                // Get ALL PDF417 barcodes from this page (not just the first)
+                var pdf417Barcodes = barcodes.Where(b => b.BarcodeFormat == BarcodeFormat.PDF_417).ToList();
+                
+                foreach (var pdf417Barcode in pdf417Barcodes)
                 {
                     try
                     {
@@ -498,7 +509,18 @@ namespace IbkrToEtax
             {
                 Console.WriteLine("  Decompressing XML data...");
                 
-                using var inputStream = new MemoryStream(compressedData);
+                // Strip trailing zero padding from last chunk (eCH-0196 requirement: all segments must be 35 rows)
+                int dataLength = compressedData.Length;
+                while (dataLength > 0 && compressedData[dataLength - 1] == 0)
+                {
+                    dataLength--;
+                }
+                
+                // Only use the non-padded portion for decompression
+                byte[] actualData = new byte[dataLength];
+                Array.Copy(compressedData, 0, actualData, 0, dataLength);
+                
+                using var inputStream = new MemoryStream(actualData);
                 using var gzipStream = new GZipStream(inputStream, CompressionMode.Decompress);
                 using var outputStream = new MemoryStream();
                 
