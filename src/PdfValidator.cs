@@ -186,12 +186,13 @@ namespace IbkrToEtax
                     result.Warnings.Add($"Page {pageNum}: Version mismatch '{version}' (expected '22')");
                 }
 
-                if (has2DBarcode != "1")
+                // Only warn about missing 2D barcodes on pages after page 1 (summary page typically has no PDF417)
+                if (has2DBarcode != "1" && pageNum > 1)
                 {
                     result.Warnings.Add($"Page {pageNum}: CODE128 indicates no 2D barcode present");
                 }
 
-                Console.WriteLine($"    Page {pageNum}: CODE128 barcode valid (Form: {formNumber}, Version: {version}, Page: {pageNumber})");
+                Console.WriteLine($"    Page {pageNum}: CODE128 barcode valid (Form: {formNumber}, Version: {version}, Page: {pageNumber}, Has2D: {has2DBarcode})");
             }
 
             return allValid;

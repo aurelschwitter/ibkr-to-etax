@@ -99,5 +99,38 @@ namespace IbkrToEtax.Tests
             
             Assert.Equal(-55.00m, result);
         }
+
+        [Theory]
+        [InlineData(99.9999, 100.000)] // < 100, 3 decimals, rounds to 100.000
+        [InlineData(99.9944, 99.994)] // < 100, round down
+        [InlineData(99.9945, 99.995)] // < 100, round up
+        [InlineData(50.1234, 50.123)] // < 100, round down
+        [InlineData(50.1235, 50.124)] // < 100, round up
+        [InlineData(100.00, 100.00)] // >= 100, 2 decimals
+        [InlineData(100.004, 100.00)] // >= 100, round down
+        [InlineData(100.005, 100.01)] // >= 100, round up (0.5 rounds up per DIN 1333)
+        [InlineData(1000.124, 1000.12)] // >= 100, round down
+        [InlineData(1000.125, 1000.13)] // >= 100, round up
+        [InlineData(57759.20474748, 57759.20)] // Real value from output
+        [InlineData(215.1081339, 215.11)] // Real value from output
+        [InlineData(45.961090410, 45.961)] // Real value < 100
+        public void RoundTotal_VariousAmounts_ReturnsCorrectRounding(decimal input, decimal expected)
+        {
+            var result = DataHelper.RoundTotal(input);
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData(99.9999, "100.00")] // Rounds to 100.00, uses 2 decimals
+        [InlineData(50.1235, "50.124")] // < 100, 3 decimals
+        [InlineData(100.005, "100.01")] // >= 100, 2 decimals
+        [InlineData(1000.125, "1000.13")] // >= 100, 2 decimals
+        [InlineData(57759.20474748, "57759.20")] // Real value
+        [InlineData(0, "0.000")] // Zero < 100, 3 decimals
+        public void FormatTotal_VariousAmounts_ReturnsCorrectFormat(decimal input, string expected)
+        {
+            var result = DataHelper.FormatTotal(input);
+            Assert.Equal(expected, result);
+        }
     }
 }

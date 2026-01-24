@@ -48,5 +48,29 @@ namespace IbkrToEtax
             decimal fxRate = ParseDecimal((string?)transaction.Attribute("fxRateToBase"));
             return amount * fxRate;
         }
+
+        /// <summary>
+        /// Rounds a total/sum value according to eCH-0196 standard (DIN 1333):
+        /// - Amounts < 100: 3 decimal places
+        /// - Amounts >= 100: 2 decimal places
+        /// - Standard rounding (0.5 rounds up = MidpointRounding.AwayFromZero)
+        /// </summary>
+        public static decimal RoundTotal(decimal value)
+        {
+            int decimals = Math.Abs(value) < 100 ? 3 : 2;
+            return Math.Round(value, decimals, MidpointRounding.AwayFromZero);
+        }
+
+        /// <summary>
+        /// Formats a total value according to eCH-0196 standard for XML output.
+        /// The decimal places are determined by the rounded value.
+        /// </summary>
+        public static string FormatTotal(decimal value)
+        {
+            decimal rounded = RoundTotal(value);
+            // Check the rounded value to determine decimal places
+            int decimals = Math.Abs(rounded) < 100 ? 3 : 2;
+            return rounded.ToString($"F{decimals}", CultureInfo.InvariantCulture);
+        }
     }
 }
