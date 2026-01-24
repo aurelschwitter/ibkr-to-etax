@@ -99,7 +99,7 @@ namespace IbkrToEtax
                 IbkrDataParser.PrintDataLoadSummary(openPositions, trades, dividends, withholdingTax, accountInfo);
 
                 // Build eCH tax statement
-                var echStatement = EchStatementBuilder.BuildEchTaxStatement(openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo, canton);
+                var echStatement = EchStatementBuilder.BuildEchTaxStatement(doc, openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo, canton);
 
                 // Display financial summary
                 FinancialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);

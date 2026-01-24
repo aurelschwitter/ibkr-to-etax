@@ -24,7 +24,7 @@ namespace IbkrToEtax
             return $"{countryCode}{organizationId}{pageNumber}{customerNumber}{dateStr}{seqStr}";
         }
 
-        public static EchTaxStatement BuildEchTaxStatement(List<XElement> openPositions, List<XElement> trades,
+        public static EchTaxStatement BuildEchTaxStatement(XDocument doc, List<XElement> openPositions, List<XElement> trades,
                                                      List<XElement> dividends, List<XElement> withholdingTax,
                                                      string accountId, int taxYear, DateTime periodFrom, DateTime periodTo, string canton = "ZH")
         {
@@ -53,6 +53,37 @@ namespace IbkrToEtax
             {
                 var security = BuildSecurity(position, symbol, positionId++, trades, dividends, withholdingTax, taxYear);
                 depot.Securities.Add(security);
+            }
+
+            // Add cash position from year-end EquitySummary
+            var yearEndEquitySummary = doc.Descendants("EquitySummaryByReportDateInBase")
+                .Where(e => (string?)e.Attribute("accountId") == accountId && 
+                           (string?)e.Attribute("reportDate") == $"{taxYear}-12-31")
+                .FirstOrDefault();
+
+            if (yearEndEquitySummary != null)
+            {
+                decimal cashBalance = DataHelper.ParseDecimal((string?)yearEndEquitySummary.Attribute("cash"));
+                if (cashBalance > 0)
+                {
+                    var cashSecurity = new EchSecurity
+                    {
+                        PositionId = positionId++,
+                        Isin = "",
+                        Country = "CH",
+                        Currency = "CHF",
+                        SecurityCategory = "OTHER",
+                        SecurityName = "Cash Balance",
+                        TaxValue = new EchTaxValue
+                        {
+                            ReferenceDate = new DateTime(taxYear, 12, 31),
+                            Quantity = 1,
+                            UnitPrice = cashBalance,
+                            Value = cashBalance
+                        }
+                    };
+                    depot.Securities.Add(cashSecurity);
+                }
             }
 
             return statement;

@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Xml;
 using ZXing;
 using ZXing.Common;
 using ZXing.SkiaSharp;
@@ -277,32 +278,122 @@ namespace IbkrToEtax
                 .SetMarginTop(50);
             document.Add(title);
 
-            // Add summary information
-            var summaryText = new Paragraph()
-                .SetFontSize(12)
+            // Create two-column layout using Table
+            var table = new iText.Layout.Element.Table(2)
+                .UseAllAvailableWidth()
                 .SetMarginTop(30)
-                .SetMarginLeft(80);
+                .SetMarginLeft(60)
+                .SetMarginRight(60);
+
+            // Left column content
+            var leftColumn = new Paragraph()
+                .SetFontSize(12);
             
-            summaryText.Add($"Tax Period: {taxPeriod} ({periodFrom} to {periodTo})\n");
-            summaryText.Add($"Canton: {canton}\n");
-            summaryText.Add($"Client Number: {clientNumber}\n\n");
+            leftColumn.Add(new Text("Tax Period:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{taxPeriod} ({periodFrom} to {periodTo})\n\n");
             
-            summaryText.Add($"Financial Institution: {institutionName}\n");
-            summaryText.Add($"Depot Number: {depotNumber}\n\n");
+            leftColumn.Add(new Text("Canton:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{canton}\n\n");
             
-            summaryText.Add($"Total Tax Value: CHF {decimal.Parse(totalTaxValue):N2}\n");
-            summaryText.Add($"Total Gross Revenue: CHF {decimal.Parse(totalGrossRevenue):N2}\n");
-            summaryText.Add($"Total Withholding Tax Claim: CHF {decimal.Parse(totalWithholdingTax):N2}\n\n");
+            leftColumn.Add(new Text("Client Number:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{clientNumber}\n\n");
             
-            summaryText.Add($"Securities: {securityCount}\n");
-            summaryText.Add($"Payments: {paymentCount}\n");
-            summaryText.Add($"Stock Mutations: {mutationCount}\n\n");
+            leftColumn.Add(new Text("Financial Institution:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{institutionName}\n\n");
             
-            summaryText.Add(new Text($"Barcode ID: {barcodeId}\n").SetFontSize(9));
-            summaryText.Add(new Text($"Total Barcode Segments: {totalChunks}\n").SetFontSize(9));
-            summaryText.Add(new Text($"Barcode Pages: {barcodePageCount}\n").SetFontSize(9));
+            leftColumn.Add(new Text("Depot Number:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{depotNumber}\n\n");
             
-            document.Add(summaryText);
+            leftColumn.Add(new Text("Securities: ").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{securityCount}\n");
+            leftColumn.Add(new Text("Payments: ").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{paymentCount}\n");
+            leftColumn.Add(new Text("Stock Mutations: ").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            leftColumn.Add($"{mutationCount}\n");
+
+            // Right column content
+            var rightColumn = new Paragraph()
+                .SetFontSize(12);
+            
+            rightColumn.Add(new Text("Total Tax Value:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            rightColumn.Add($"CHF {decimal.Parse(totalTaxValue):N2}\n\n");
+            
+            rightColumn.Add(new Text("Total Gross Revenue:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            rightColumn.Add($"CHF {decimal.Parse(totalGrossRevenue):N2}\n\n");
+            
+            rightColumn.Add(new Text("Total Withholding Tax:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            rightColumn.Add($"CHF {decimal.Parse(totalWithholdingTax):N2}\n\n");
+            
+            // Add position breakdown by category
+            var securities = xmlDoc.SelectNodes("//ech:security", nsmgr);
+            if (securities != null && securities.Count > 0)
+            {
+                rightColumn.Add(new Text("Position Summary:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+                
+                decimal totalPositionValue = 0;
+                var positionsByCategory = new Dictionary<string, (int count, decimal value)>
+                {
+                    ["SHARE"] = (0, 0),
+                    ["OTHER"] = (0, 0),
+                    ["BOND"] = (0, 0),
+                    ["OPTION"] = (0, 0)
+                };
+                
+                foreach (XmlNode security in securities)
+                {
+                    var taxValueNode = security.SelectSingleNode("ech:taxValue", nsmgr);
+                    if (taxValueNode != null)
+                    {
+                        string category = security.Attributes?["securityCategory"]?.Value ?? "OTHER";
+                        decimal value = decimal.Parse(taxValueNode.Attributes?["value"]?.Value ?? "0");
+                        totalPositionValue += value;
+                        
+                        // Update category totals
+                        if (positionsByCategory.ContainsKey(category))
+                        {
+                            var (count, catValue) = positionsByCategory[category];
+                            positionsByCategory[category] = (count + 1, catValue + value);
+                        }
+                        else
+                        {
+                            positionsByCategory[category] = (1, value);
+                        }
+                    }
+                }
+                
+                foreach (var kvp in positionsByCategory.OrderByDescending(x => x.Value.value))
+                {
+                    if (kvp.Value.count > 0)
+                    {
+                        string categoryName = kvp.Key switch
+                        {
+                            "SHARE" => "Stocks/ETFs",
+                            "OTHER" => "Cash & Other",
+                            "BOND" => "Bonds",
+                            "OPTION" => "Options",
+                            _ => kvp.Key
+                        };
+                        rightColumn.Add($"{categoryName}: {kvp.Value.count} pos, CHF {kvp.Value.value:N2}\n");
+                    }
+                }
+                rightColumn.Add(new Text($"Total: CHF {totalPositionValue:N2}\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
+            }
+
+            // Add columns to table
+            table.AddCell(new iText.Layout.Element.Cell().Add(leftColumn).SetBorder(iText.Layout.Borders.Border.NO_BORDER));
+            table.AddCell(new iText.Layout.Element.Cell().Add(rightColumn).SetBorder(iText.Layout.Borders.Border.NO_BORDER));
+            
+            document.Add(table);
+
+            // Add barcode info at the bottom
+            var barcodeInfo = new Paragraph()
+                .SetFontSize(9)
+                .SetMarginTop(20)
+                .SetMarginLeft(60);
+            barcodeInfo.Add($"Barcode ID: {barcodeId}  |  ");
+            barcodeInfo.Add($"Barcode Segments: {totalChunks}  |  ");
+            barcodeInfo.Add($"Barcode Pages: {barcodePageCount}");
+            document.Add(barcodeInfo);
 
             // Add CODE128C barcode to summary page (has2DBarcode = false since no PDF417 on this page)
             var summaryCode128Image = GenerateCode128Barcode(1, false, 2, 1);
