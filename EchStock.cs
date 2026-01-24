@@ -2,7 +2,7 @@ using System;
 
 namespace IbkrToEtax
 {
-    class EchStock
+    public class EchStock
     {
         public DateTime ReferenceDate { get; set; }
         public bool IsMutation { get; set; }

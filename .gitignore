@@ -78,3 +78,4 @@ desktop.ini
 
 # do not include Input / Output files
 *.xml
+*.pdf

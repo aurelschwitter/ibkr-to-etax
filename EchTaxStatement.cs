@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace IbkrToEtax
 {
-    class EchTaxStatement
+    public class EchTaxStatement
     {
         public string Id { get; set; } = "";
         public DateTime CreationDate { get; set; } = DateTime.Now;

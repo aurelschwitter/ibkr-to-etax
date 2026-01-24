@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace IbkrToEtax
 {
-    class EchSecurity
+    public class EchSecurity
     {
         public int PositionId { get; set; }
         public string Isin { get; set; } = "";

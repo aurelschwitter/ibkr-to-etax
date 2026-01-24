@@ -2,7 +2,7 @@ using System;
 
 namespace IbkrToEtax
 {
-    class EchTaxValue
+    public class EchTaxValue
     {
         public DateTime ReferenceDate { get; set; }
         public decimal Quantity { get; set; }

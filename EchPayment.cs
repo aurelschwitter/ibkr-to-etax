@@ -2,7 +2,7 @@ using System;
 
 namespace IbkrToEtax
 {
-    class EchPayment
+    public class EchPayment
     {
         public DateTime PaymentDate { get; set; }
         public DateTime? ExDate { get; set; }
