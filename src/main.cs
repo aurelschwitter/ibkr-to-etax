@@ -25,13 +25,35 @@ namespace IbkrToEtax
             public string? SchemaFile { get; set; }
         }
 
+        [Verb("sign", HelpText = "Digitally sign XML file with a certificate")]
+        class SignOptions
+        {
+            [Value(0, Required = true, MetaName = "xmlFile", HelpText = "XML file to sign")]
+            public string XmlFile { get; set; } = "";
+
+            [Option('c', "cert", Required = true, HelpText = "Path to PFX/P12 certificate file")]
+            public string CertificatePath { get; set; } = "";
+
+            [Option('p', "password", Required = true, HelpText = "Password for the certificate file")]
+            public string Password { get; set; } = "";
+        }
+
+        [Verb("verify", HelpText = "Verify digital signature on XML file")]
+        class VerifyOptions
+        {
+            [Value(0, Required = true, MetaName = "xmlFile", HelpText = "Signed XML file to verify")]
+            public string XmlFile { get; set; } = "";
+        }
+
         static int Main(string[] args)
         {
             // Parse with CommandLineParser
-            return Parser.Default.ParseArguments<ConvertOptions, ValidateOptions>(args)
+            return Parser.Default.ParseArguments<ConvertOptions, ValidateOptions, SignOptions, VerifyOptions>(args)
                 .MapResult(
                     (ConvertOptions opts) => RunConvert(opts),
                     (ValidateOptions opts) => RunValidate(opts),
+                    (SignOptions opts) => RunSign(opts),
+                    (VerifyOptions opts) => RunVerify(opts),
                     errs => 1);
         }
 
@@ -53,6 +75,71 @@ namespace IbkrToEtax
                 return 2;
             }
             return ValidateEchPdf(opts.InputFile, opts.SchemaFile);
+        }
+
+        static int RunSign(SignOptions opts)
+        {
+            try
+            {
+                if (!File.Exists(opts.XmlFile))
+                {
+                    Console.WriteLine($"Error: XML file not found: {opts.XmlFile}");
+                    return 2;
+                }
+
+                if (!File.Exists(opts.CertificatePath))
+                {
+                    Console.WriteLine($"Error: Certificate file not found: {opts.CertificatePath}");
+                    return 2;
+                }
+
+                // Sign XML
+                Console.WriteLine("=== Digital Signature Process ===");
+                Console.WriteLine();
+#pragma warning disable SYSLIB0057
+                var certificate = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    opts.CertificatePath, 
+                    opts.Password, 
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.Exportable);
+#pragma warning restore SYSLIB0057
+                
+                DocumentSigner.SignXml(opts.XmlFile, certificate);
+                certificate.Dispose();
+                
+                Console.WriteLine();
+                Console.WriteLine("✓ Document signed successfully");
+
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error signing document: {ex.Message}");
+                return 3;
+            }
+        }
+
+        static int RunVerify(VerifyOptions opts)
+        {
+            try
+            {
+                if (!File.Exists(opts.XmlFile))
+                {
+                    Console.WriteLine($"Error: XML file not found: {opts.XmlFile}");
+                    return 2;
+                }
+
+                Console.WriteLine("=== XML Signature Verification ===");
+                Console.WriteLine();
+                
+                bool isValid = DocumentSigner.VerifyXmlSignature(opts.XmlFile);
+                
+                return isValid ? 0 : 3;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error verifying signature: {ex.Message}");
+                return 3;
+            }
         }
 
         static int ConvertIbkrToEch(string inputFilePath, string outputXmlPath, string outputPdfPath)

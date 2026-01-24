@@ -78,3 +78,7 @@ eCH-0196-output.pdf
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Sensitive files
+*.p12
+*.pfx
