@@ -42,7 +42,7 @@ namespace IbkrToEtax
                 Console.WriteLine($"Error: File not found: {opts.InputFile}");
                 return 2;
             }
-            return ConvertIbkrToEch(opts.InputFile);
+            return ConvertIbkrToEch(opts.InputFile, opts.InputFile.Replace(".xml", ".output.xml"), opts.InputFile.Replace(".xml", ".output.pdf"));
         }
 
         static int RunValidate(ValidateOptions opts)
@@ -55,21 +55,21 @@ namespace IbkrToEtax
             return ValidateEchPdf(opts.InputFile, opts.SchemaFile);
         }
 
-        static int ConvertIbkrToEch(string filePath)
+        static int ConvertIbkrToEch(string inputFilePath, string outputXmlPath, string outputPdfPath)
         {
             Console.WriteLine("=== IBKR to eCH-0196 Converter ===");
             Console.WriteLine();
 
-            if (!File.Exists(filePath))
+            if (!File.Exists(inputFilePath))
             {
-                Console.WriteLine($"Error: File not found: {filePath}");
+                Console.WriteLine($"Error: File not found: {inputFilePath}");
                 return 2;
             }
 
             try
             {
-                Console.WriteLine($"Loading {filePath}...");
-                var doc = XDocument.Load(filePath);
+                Console.WriteLine($"Loading {inputFilePath}...");
+                var doc = XDocument.Load(inputFilePath);
 
                 // Extract account ID from XML
                 var accountInfo = doc.Descendants("AccountInformation").FirstOrDefault();
@@ -105,7 +105,7 @@ namespace IbkrToEtax
                 FinancialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);
 
                 // Generate output
-                EchXmlGenerator.SaveAndDisplayOutput(echStatement);
+                EchXmlGenerator.SaveAndDisplayOutput(echStatement, outputXmlPath, outputPdfPath);
 
                 Console.WriteLine();
                 Console.WriteLine("✓ Conversion completed successfully");

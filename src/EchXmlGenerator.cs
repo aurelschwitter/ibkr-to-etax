@@ -68,7 +68,7 @@ namespace IbkrToEtax
                                 payment.ExDate.HasValue ? new XAttribute("exDate", payment.ExDate.Value.ToString("yyyy-MM-dd")) : null,
                                 new XAttribute("quotationType", "PIECE"),
                                 new XAttribute("quantity", payment.Quantity),
-                                new XAttribute("amountCurrency", sec.Currency),
+                                new XAttribute("amountCurrency", "CHF"),
                                 new XAttribute("amount", payment.Amount),
                                 new XAttribute("grossRevenueA", payment.GrossRevenueA),
                                 new XAttribute("grossRevenueB", payment.GrossRevenueB),
@@ -95,15 +95,14 @@ namespace IbkrToEtax
             );
         }
 
-        public static void SaveAndDisplayOutput(EchTaxStatement statement)
+        public static void SaveAndDisplayOutput(EchTaxStatement statement, string outputXmlPath, string outputPdfPath)
         {
             var echXml = GenerateEchXml(statement);
-            string outputPath = "eCH-0196-output.xml";
-            echXml.Save(outputPath);
+            echXml.Save(outputXmlPath);
 
             var depot = statement.Depots.First();
             Console.WriteLine();
-            Console.WriteLine($"✓ Generated eCH-0196 tax statement: {outputPath}");
+            Console.WriteLine($"✓ Generated eCH-0196 tax statement: {outputXmlPath}");
             Console.WriteLine($"  - {depot.Securities.Count} securities");
             Console.WriteLine($"  - {depot.Securities.Sum(s => s.Stocks.Count)} stock mutations");
             Console.WriteLine($"  - {depot.Securities.Sum(s => s.Payments.Count)} dividend payments");
@@ -111,8 +110,7 @@ namespace IbkrToEtax
             // Generate PDF with barcodes
             try
             {
-                string pdfPath = "eCH-0196-output.pdf";
-                PdfBarcodeGenerator.GeneratePdfWithBarcodes(outputPath, pdfPath);
+                PdfBarcodeGenerator.GeneratePdfWithBarcodes(outputXmlPath, outputPdfPath);
             }
             catch (Exception ex)
             {

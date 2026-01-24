@@ -41,12 +41,12 @@ namespace IbkrToEtax
             var depot = new EchSecurityDepot { DepotNumber = accountId };
             statement.Depots.Add(depot);
 
-            // Process each position
+            // Process each position - use the latest (year-end) position for each symbol
             var positionsBySymbol = openPositions
-                .Select(p => new { Symbol = (string?)p.Attribute("symbol"), Position = p })
+                .Select(p => new { Symbol = (string?)p.Attribute("symbol"), ReportDate = (string?)p.Attribute("reportDate"), Position = p })
                 .Where(x => !string.IsNullOrEmpty(x.Symbol))
                 .GroupBy(x => x.Symbol!)
-                .ToDictionary(g => g.Key, g => g.First().Position);
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.ReportDate).First().Position);
 
             int positionId = 1;
             foreach (var (symbol, position) in positionsBySymbol)
@@ -62,6 +62,11 @@ namespace IbkrToEtax
                                          List<XElement> trades, List<XElement> dividends,
                                          List<XElement> withholdingTax, int taxYear)
         {
+            // Only include NAV (TaxValue) if the position is from the year-end date
+            string reportDate = (string?)position.Attribute("reportDate") ?? "";
+            DateTime yearEndDate = new DateTime(taxYear, 12, 31);
+            bool isYearEndPosition = reportDate == yearEndDate.ToString("yyyy-MM-dd");
+
             var security = new EchSecurity
             {
                 PositionId = positionId,
@@ -70,13 +75,13 @@ namespace IbkrToEtax
                 Currency = (string?)position.Attribute("currency") ?? "",
                 SecurityCategory = DataHelper.MapSecurityCategory((string?)position.Attribute("assetCategory") ?? "STK"),
                 SecurityName = (string?)position.Attribute("description") ?? symbol,
-                TaxValue = new EchTaxValue
+                TaxValue = isYearEndPosition ? new EchTaxValue
                 {
-                    ReferenceDate = new DateTime(taxYear, 12, 31),
+                    ReferenceDate = yearEndDate,
                     Quantity = DataHelper.ParseDecimal((string?)position.Attribute("position")),
                     UnitPrice = DataHelper.ParseDecimal((string?)position.Attribute("markPrice")),
                     Value = DataHelper.ParseDecimal((string?)position.Attribute("positionValueInBase"))
-                }
+                } : null
             };
 
             AddTradesAsStockMutations(security, symbol, trades);
@@ -120,13 +125,14 @@ namespace IbkrToEtax
             foreach (var dividend in symbolDividends)
             {
                 string settleDate = (string?)dividend.Attribute("settleDate") ?? "";
+                string actionID = (string?)dividend.Attribute("actionID") ?? "";
                 decimal netAmount = DataHelper.ParseDecimal((string?)dividend.Attribute("amount"));
 
                 // Skip reversals
                 if (netAmount <= 0) continue;
 
                 decimal netAmountCHF = DataHelper.ConvertToCHF(dividend);
-                decimal taxAmountCHF = FindMatchingWithholdingTax(symbol, settleDate, withholdingTax);
+                decimal taxAmountCHF = FindMatchingWithholdingTax(symbol, settleDate, actionID, withholdingTax);
                 decimal grossAmountCHF = netAmountCHF + taxAmountCHF;
 
                 // Calculate additional withholding tax for USA (15% of gross amount for US securities)
@@ -151,13 +157,14 @@ namespace IbkrToEtax
             }
         }
 
-        private static decimal FindMatchingWithholdingTax(string symbol, string settleDate, List<XElement> withholdingTax)
+        private static decimal FindMatchingWithholdingTax(string symbol, string settleDate, string actionID, List<XElement> withholdingTax)
         {
-            var taxTransaction = withholdingTax.FirstOrDefault(wt =>
+            var taxTransactions = withholdingTax.Where(wt =>
                 (string?)wt.Attribute("symbol") == symbol &&
-                (string?)wt.Attribute("settleDate") == settleDate);
+                (string?)wt.Attribute("settleDate") == settleDate &&
+                (string?)wt.Attribute("actionID") == actionID);
 
-            return taxTransaction != null ? Math.Abs(DataHelper.ConvertToCHF(taxTransaction)) : 0;
+            return Math.Abs(taxTransactions.Sum(wt => DataHelper.ConvertToCHF(wt)));
         }
     }
 }
