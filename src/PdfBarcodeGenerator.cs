@@ -63,7 +63,7 @@ namespace IbkrToEtax
 
         // Spacing per eCH-0270
         private const float SPACING_SEGMENTS_CM = 1.0f; // Minimum 1cm between segments
-        private const float SPACING_FOLD_CM = 2f; // Larger spacing between segments 3-4 (fold line)
+        private const float ADDITIONAL_SPACING_FOLD_CM = 1f; // Larger spacing between segments 3-4 (fold line)
         private const float EXCLUSION_ZONE_CM = 1.0f; // 1cm exclusion zone around barcodes
 
 
@@ -121,26 +121,11 @@ namespace IbkrToEtax
             while (offset < data.Length)
             {
                 int chunkSize = Math.Min(MAX_PDF417_SIZE, data.Length - offset);
-                bool isLastChunk = (offset + chunkSize >= data.Length);
 
                 // [MUSS] Pad last chunk to exact size to ensure 35 rows
-                if (isLastChunk && chunkSize < MAX_PDF417_SIZE)
-                {
-                    byte[] chunk = new byte[MAX_PDF417_SIZE];
-                    Array.Copy(data, offset, chunk, 0, chunkSize);
-                    // Pad with zeros to reach exact size
-                    for (int i = chunkSize; i < MAX_PDF417_SIZE; i++)
-                    {
-                        chunk[i] = 0;
-                    }
-                    chunks.Add(chunk);
-                }
-                else
-                {
-                    byte[] chunk = new byte[chunkSize];
-                    Array.Copy(data, offset, chunk, 0, chunkSize);
-                    chunks.Add(chunk);
-                }
+                byte[] chunk = new byte[MAX_PDF417_SIZE];
+                Array.Copy(data, offset, chunk, 0, chunkSize);
+                chunks.Add(chunk);
 
                 offset += chunkSize;
             }
@@ -196,13 +181,14 @@ namespace IbkrToEtax
             return barcodeImages;
         }
 
-        private static byte[] GenerateCode128Barcode(int pageNumber, bool has2DBarcode, int orientation, int readingDirection)
+        private static byte[] GenerateCode128Barcode(int pageNumber, bool has2DBarcode, int orientation)
         {
             // Build 16-digit CODE128C barcode for eCH-0196
             // Format: 197/196 (form) + 21 (version) + 00000 (org) + 001 (page) + 0 (has2D) + 2 (orient) + 1 (direction)
             string formNumber = has2DBarcode ? FORM_NUMBER_DATA : FORM_NUMBER_SUMMARY;
             int twoDBarcode = has2DBarcode ? 1 : 0;
-            string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{readingDirection}";
+            int posId = 3;
+            string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{posId}";
 
             // Generate CODE128C barcode using ZXing
             var writer = new BarcodeWriter
@@ -210,12 +196,11 @@ namespace IbkrToEtax
                 Format = BarcodeFormat.CODE_128,
                 Options = new EncodingOptions
                 {
-                    Height = BARCODE_HEIGHT_MM * 6, // Convert mm to pixels at 300 DPI
-                    Width = BARCODE_WIDTH_MM * 2,
+                    Height = BARCODE_HEIGHT_MM * 4, // Convert mm to pixels at 300 DPI
+                    Width = BARCODE_WIDTH_MM,
                     Margin = 0,
-                    NoPadding = true,
                     PureBarcode = false, // Show text below barcode
-                    GS1Format = true
+                    GS1Format = false
                 }
             };
 
@@ -391,7 +376,7 @@ namespace IbkrToEtax
             document.Add(barcodeInfo);
 
             // Add CODE128C barcode to summary page (Form 197, no eCH-0196 data)
-            var summaryCode128Image = GenerateCode128Barcode(1, false, 0, 2);
+            var summaryCode128Image = GenerateCode128Barcode(1, false, 0);
             var summaryCode128ImageData = ImageDataFactory.Create(summaryCode128Image);
             var summaryPdfCode128 = new Image(summaryCode128ImageData);
             summaryPdfCode128.ScaleToFit(BARCODE_WIDTH_MM * 5, BARCODE_HEIGHT_MM * 5);
@@ -422,11 +407,11 @@ namespace IbkrToEtax
 
                 // eCH-0270 spacing in points
                 float spacingNormal = SPACING_SEGMENTS_CM * (float)CM_TO_POINTS;
-                float spacingLarge = SPACING_FOLD_CM * (float)CM_TO_POINTS;
+                float spacingLarge = ADDITIONAL_SPACING_FOLD_CM * (float)CM_TO_POINTS;
 
                 // Add CODE128C barcode for this page (Form 196 with eCH-0196 data)
                 // has2DBarcode is always set to 0 (false) in the barcode, Orientation: 2 (landscape), Reading direction: 1
-                var code128Image = GenerateCode128Barcode(currentPageNumber, has2DBarcode: true, 0, 2);
+                var code128Image = GenerateCode128Barcode(currentPageNumber, has2DBarcode: true, 0);
                 var code128ImageData = ImageDataFactory.Create(code128Image);
                 var pdfCode128 = new Image(code128ImageData);
 
