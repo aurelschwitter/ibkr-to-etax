@@ -10,18 +10,26 @@ namespace IbkrToEtax
         public static string GenerateEchId(string accountId, DateTime date, int sequenceNumber = 1)
         {
             // eCH-0196 Section 2.1: ID format
-            // CH (country) + 00000 (org) + 01 (page) + {accountId 14 chars} + {YYYYMMDD} + {seq 2 digits}
+            // CH (country) + zeros + {accountId} + {YYYYMMDD} + {seq 2 digits}
+            // Total length should be consistent with standard format
             string countryCode = "CH";
-            string organizationId = "00000"; // Placeholder - should be clearing number or UID
-            string pageNumber = "01";
-            string customerNumber = accountId.PadLeft(14, '0');
-            if (customerNumber.Length > 14)
-                customerNumber = customerNumber.Substring(customerNumber.Length - 14);
+            string organizationId = "00000"; // 5-digit organization/clearing number
+            
+            // Pad account ID to fixed width (8 digits for client number)
+            // If account has letters (like U14798214), keep them
+            string customerNumber = accountId.Length <= 8 
+                ? accountId.PadLeft(8, '0') 
+                : accountId.Substring(accountId.Length - 8);
+            
+            // Add padding zeros between org and customer number to reach proper length
+            int paddingZeros = 19 - (organizationId.Length + customerNumber.Length); // Total should be 19 chars before date
+            string padding = new string('0', Math.Max(0, paddingZeros));
+            
             string dateStr = date.ToString("yyyyMMdd");
             string seqStr = sequenceNumber.ToString("D2");
             
             // Must start with alphanumeric (xs:ID requirement)
-            return $"{countryCode}{organizationId}{pageNumber}{customerNumber}{dateStr}{seqStr}";
+            return $"{countryCode}{organizationId}{padding}{customerNumber}{dateStr}{seqStr}";
         }
 
         public static EchTaxStatement BuildEchTaxStatement(XDocument doc, List<XElement> openPositions, List<XElement> trades,
@@ -132,11 +140,15 @@ namespace IbkrToEtax
                 var tradeDateStr = (string?)trade.Attribute("tradeDate");
                 if (string.IsNullOrEmpty(tradeDateStr)) continue;
 
+                var quantity = DataHelper.ParseDecimal((string?)trade.Attribute("quantity"));
+                string name = quantity > 0 ? "Kauf" : "Verkauf"; // "Purchase" or "Sale"
+
                 security.Stocks.Add(new EchStock
                 {
                     ReferenceDate = DateTime.Parse(tradeDateStr),
                     IsMutation = true,
-                    Quantity = DataHelper.ParseDecimal((string?)trade.Attribute("quantity")),
+                    Name = name,
+                    Quantity = Math.Abs(quantity),
                     UnitPrice = DataHelper.ParseDecimal((string?)trade.Attribute("tradePrice")),
                     Value = Math.Abs(DataHelper.ParseDecimal((string?)trade.Attribute("proceeds")))
                 });
@@ -178,6 +190,7 @@ namespace IbkrToEtax
                 {
                     PaymentDate = DateTime.Parse(settleDate),
                     ExDate = DataHelper.ParseNullableDate((string?)dividend.Attribute("exDate")),
+                    Name = "Dividendenzahlung",
                     Quantity = 0,
                     Amount = grossAmountCHF,
                     GrossRevenueA = 0,  // Swiss securities

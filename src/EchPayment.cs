@@ -6,6 +6,7 @@ namespace IbkrToEtax
     {
         public DateTime PaymentDate { get; set; }
         public DateTime? ExDate { get; set; }
+        public string? Name { get; set; }
         public decimal Quantity { get; set; }
         public decimal Amount { get; set; }
         public decimal GrossRevenueA { get; set; }

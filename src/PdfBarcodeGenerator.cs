@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Xml;
@@ -16,13 +15,15 @@ using iText.Kernel.Geom;
 using iText.Kernel.Font;
 using iText.IO.Font.Constants;
 using SkiaSharp;
+using SharpCompress.Compressors.Deflate;
+using ZXing.PDF417.Internal;
 
 namespace IbkrToEtax
 {
     public class PdfBarcodeGenerator
     {
         // eCH-0270 Requirements:
-        // [MUSS] ZIP compression for XML data
+        // [MUSS] DEFLATE compression for XML data (zlib format)
         // [MUSS] EC-Level 4 (ISO/IEC 24728:2006)
         // [MUSS] 6 blocks, 13 columns, 35 rows per barcode (including last segment)
         // [MUSS] Element size: width 0.04-0.042 cm, height 0.08 cm
@@ -30,54 +31,47 @@ namespace IbkrToEtax
         // [MUSS] Print scaling: 97% → actual size = dimensions / 0.97
         // [MUSS] Margins: Top 5cm, Left/Right/Bottom 2cm
         // [MUSS] Spacing: min 1cm between segments (larger between 3-4 for fold)
-        
-        private const int MAX_PDF417_SIZE = 700; // Maximum bytes per PDF417 code segment (conservative for 13 cols, 35 rows, EC level 4)
-        private const int PDF417_EXACT_SIZE = 700; // Exact size to ensure all segments use 35 rows
-        
+
+        private const int MAX_PDF417_SIZE = 470; // Maximum bytes per PDF417 code segment (conservative for 13 cols, 35 rows, EC level 4)
+
         // PDF417 specifications as per eCH-0270
         private const int PDF417_COLUMNS = 13;
         private const int PDF417_ROWS = 35; // Must be 35 for ALL segments including the last
-        private const int PDF417_ERROR_CORRECTION = 4; // EC-Level 4
-        
+        private const PDF417ErrorCorrectionLevel PDF417_ERROR_CORRECTION = PDF417ErrorCorrectionLevel.L4; // EC-Level 4
+
         // Image dimensions per eCH-0270
+        // Generate at high resolution, width stays same but height 1.5x
         private const int PDF417_IMAGE_WIDTH_PIXELS = 290;
         private const int PDF417_IMAGE_HEIGHT_PIXELS = 35;
-        
-        // Physical dimensions (before 97% print scaling)
+
+        // Physical dimensions - TARGET size in PDF
         private const double ELEMENT_WIDTH_CM = 0.042; // 0.04-0.042 cm
         private const double ELEMENT_HEIGHT_CM = 0.08;
-        private const double PDF417_WIDTH_CM = PDF417_IMAGE_WIDTH_PIXELS * ELEMENT_WIDTH_CM; // 12.18 cm
-        private const double PDF417_HEIGHT_CM = PDF417_IMAGE_HEIGHT_PIXELS * ELEMENT_HEIGHT_CM; // 2.8 cm
-        
-        // Print scaling factor per eCH-0270
-        private const double PRINT_SCALING = 0.97;
-        private const double PDF417_WIDTH_CM_SCALED = PDF417_WIDTH_CM / PRINT_SCALING; // ~12.56 cm
-        private const double PDF417_HEIGHT_CM_SCALED = PDF417_HEIGHT_CM / PRINT_SCALING; // ~2.89 cm
-        
+        private const double PDF417_TARGET_WIDTH_CM = PDF417_IMAGE_WIDTH_PIXELS * ELEMENT_WIDTH_CM; // Original width
+        private const double PDF417_TARGET_HEIGHT_CM = PDF417_IMAGE_HEIGHT_PIXELS * ELEMENT_HEIGHT_CM; // Original height
+
         // Convert cm to points (1 inch = 2.54 cm = 72 points)
         private const double CM_TO_POINTS = 72.0 / 2.54;
-        private const float PDF417_WIDTH_POINTS = (float)(PDF417_WIDTH_CM_SCALED * CM_TO_POINTS);
-        private const float PDF417_HEIGHT_POINTS = (float)(PDF417_HEIGHT_CM_SCALED * CM_TO_POINTS);
-        
+        private const float PDF417_WIDTH_POINTS = (float)(PDF417_TARGET_WIDTH_CM * CM_TO_POINTS);
+        private const float PDF417_HEIGHT_POINTS = (float)(PDF417_TARGET_HEIGHT_CM * CM_TO_POINTS);
+
         // Margins per eCH-0270 (landscape)
         private const float MARGIN_TOP_CM = 5.0f;
         private const float MARGIN_LEFT_CM = 2.0f;
-        private const float MARGIN_RIGHT_CM = 2.0f;
+        private const float MARGIN_RIGHT_CM = 3.0f;
         private const float MARGIN_BOTTOM_CM = 2.0f;
-        
+
         // Spacing per eCH-0270
         private const float SPACING_SEGMENTS_CM = 1.0f; // Minimum 1cm between segments
-        private const float SPACING_FOLD_CM = 1.5f; // Larger spacing between segments 3-4 (fold line)
+        private const float SPACING_FOLD_CM = 2f; // Larger spacing between segments 3-4 (fold line)
         private const float EXCLUSION_ZONE_CM = 1.0f; // 1cm exclusion zone around barcodes
-        
-        // Convert cm to pixels (assuming 300 DPI)
-        private const int ELEMENT_WIDTH_PX = (int)(ELEMENT_WIDTH_CM * 300 / 2.54);
-        private const int ELEMENT_HEIGHT_PX = (int)(ELEMENT_HEIGHT_CM * 300 / 2.54);
-        
+
+
         // 1D CODE128C barcode specifications
-        private const string FORM_NUMBER = "196"; // eCH-0196
-        private const string VERSION_NUMBER = "22"; // Version 2.2
-        private const string ORGANIZATION_NUMBER = "99999"; // 5-digit clearing number (placeholder)
+        private const string FORM_NUMBER_SUMMARY = "197"; // Summary pages (no eCH-0196 data)
+        private const string FORM_NUMBER_DATA = "196"; // Data pages (with eCH-0196 XML)
+        private const string VERSION_NUMBER = "21"; // Version 2.1
+        private const string ORGANIZATION_NUMBER = "00000"; // 5-digit clearing number (placeholder)
         private const int BARCODE_HEIGHT_MM = 7;
         private const int BARCODE_WIDTH_MM = 38;
         private const int BARCODE_MARGIN_MM = 5;
@@ -87,10 +81,10 @@ namespace IbkrToEtax
         {
             Console.WriteLine($"Generating PDF with PDF417 barcodes (eCH-0196 format) from {xmlFilePath}...");
 
-            // Read and compress XML content using ZLIB (GZIP = ZLIB + headers)
+            // Read and compress XML content using zlib/DEFLATE
             string xmlContent = File.ReadAllText(xmlFilePath, Encoding.UTF8);
             byte[] compressedData = CompressData(Encoding.UTF8.GetBytes(xmlContent));
-            Console.WriteLine($"Compressed XML from {xmlContent.Length} to {compressedData.Length} bytes (ZLIB)");
+            Console.WriteLine($"Compressed XML from {xmlContent.Length} to {compressedData.Length} bytes (zlib/DEFLATE)");
 
             // Generate unique barcode ID (UUID format as per eCH-0196)
             string barcodeId = Guid.NewGuid().ToString("D"); // Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -112,9 +106,9 @@ namespace IbkrToEtax
         private static byte[] CompressData(byte[] data)
         {
             using var outputStream = new MemoryStream();
-            using (var gzipStream = new GZipStream(outputStream, CompressionMode.Compress))
+            using (var zlibStream = new ZlibStream(outputStream, SharpCompress.Compressors.CompressionMode.Compress, SharpCompress.Compressors.Deflate.CompressionLevel.BestCompression))
             {
-                gzipStream.Write(data, 0, data.Length);
+                zlibStream.Write(data, 0, data.Length);
             }
             return outputStream.ToArray();
         }
@@ -128,14 +122,14 @@ namespace IbkrToEtax
             {
                 int chunkSize = Math.Min(MAX_PDF417_SIZE, data.Length - offset);
                 bool isLastChunk = (offset + chunkSize >= data.Length);
-                
+
                 // [MUSS] Pad last chunk to exact size to ensure 35 rows
-                if (isLastChunk && chunkSize < PDF417_EXACT_SIZE)
+                if (isLastChunk && chunkSize < MAX_PDF417_SIZE)
                 {
-                    byte[] chunk = new byte[PDF417_EXACT_SIZE];
+                    byte[] chunk = new byte[MAX_PDF417_SIZE];
                     Array.Copy(data, offset, chunk, 0, chunkSize);
                     // Pad with zeros to reach exact size
-                    for (int i = chunkSize; i < PDF417_EXACT_SIZE; i++)
+                    for (int i = chunkSize; i < MAX_PDF417_SIZE; i++)
                     {
                         chunk[i] = 0;
                     }
@@ -147,7 +141,7 @@ namespace IbkrToEtax
                     Array.Copy(data, offset, chunk, 0, chunkSize);
                     chunks.Add(chunk);
                 }
-                
+
                 offset += chunkSize;
             }
 
@@ -160,15 +154,9 @@ namespace IbkrToEtax
 
             for (int i = 0; i < chunks.Count; i++)
             {
-                // Create header with barcode ID and chunk information as per eCH-0196
-                // Format: ID|ChunkNumber|TotalChunks|CompressedData
-                string header = $"{barcodeId}|{i + 1}|{chunks.Count}|";
-                byte[] headerBytes = Encoding.UTF8.GetBytes(header);
-
-                // Combine header with chunk data
-                byte[] barcodeData = new byte[headerBytes.Length + chunks[i].Length];
-                Array.Copy(headerBytes, 0, barcodeData, 0, headerBytes.Length);
-                Array.Copy(chunks[i], 0, barcodeData, headerBytes.Length, chunks[i].Length);
+                // Use raw compressed data directly without headers
+                // First barcode contains zlib header, subsequent barcodes contain raw DEFLATE continuation
+                byte[] barcodeData = chunks[i];
 
                 Console.WriteLine($"  PDF417 segment {i + 1}/{chunks.Count}: {barcodeData.Length} bytes");
 
@@ -176,26 +164,29 @@ namespace IbkrToEtax
                 // [MUSS] 13 columns, 35 rows for ALL segments (including last)
                 // [MUSS] EC-Level 4
                 // [MUSS] Image dimensions: 290 x 35 pixels
-                var writer = new ZXing.SkiaSharp.BarcodeWriter
+                var writer = new BarcodeWriter
                 {
                     Format = BarcodeFormat.PDF_417,
                     Options = new ZXing.PDF417.PDF417EncodingOptions
                     {
                         Height = PDF417_IMAGE_HEIGHT_PIXELS,
                         Width = PDF417_IMAGE_WIDTH_PIXELS,
+                        Dimensions = new Dimensions(PDF417_COLUMNS, PDF417_COLUMNS, PDF417_ROWS, PDF417_ROWS),
                         Margin = 0, // No margin - eCH-0270 specifies 1cm exclusion zone in PDF layout
-                        ErrorCorrection = ZXing.PDF417.Internal.PDF417ErrorCorrectionLevel.L4, // EC-Level 4
-                        Compaction = ZXing.PDF417.Internal.Compaction.BYTE
+                        ErrorCorrection = PDF417_ERROR_CORRECTION, // EC-Level 4
+                        Compaction = Compaction.BYTE,
+                        PureBarcode = true, // Ensure proper PDF417 rendering with start/stop patterns
                         // Note: ZXing.Net doesn't expose direct Columns/Rows properties
                         // The barcode dimensions are calculated based on data size and error correction
                         // To ensure 35 rows, data must be padded to fill the required capacity
-                    }
+                        NoPadding = true
+                    },
                 };
 
-                // Encode binary data as Base64 for PDF417
-                string base64Data = Convert.ToBase64String(barcodeData);
-                using var bitmap = writer.Write(base64Data);
-                
+                // Encode raw binary data directly using Latin1 to preserve byte values
+                string binaryString = Encoding.Latin1.GetString(barcodeData);
+                using var bitmap = writer.Write(binaryString);
+
                 // Convert SKBitmap to byte array (PNG)
                 using var image = SKImage.FromBitmap(bitmap);
                 using var data = image.Encode(SKEncodedImageFormat.Png, 100);
@@ -208,19 +199,23 @@ namespace IbkrToEtax
         private static byte[] GenerateCode128Barcode(int pageNumber, bool has2DBarcode, int orientation, int readingDirection)
         {
             // Build 16-digit CODE128C barcode for eCH-0196
-            // Format: 196 (form) + 22 (version) + 00000 (org) + 001 (page) + 1 (has2D) + 1 (orient) + 1 (direction)
-            string barcodeData = $"{FORM_NUMBER}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{(has2DBarcode ? "1" : "0")}{orientation}{readingDirection}";
-            
+            // Format: 197/196 (form) + 21 (version) + 00000 (org) + 001 (page) + 0 (has2D) + 2 (orient) + 1 (direction)
+            string formNumber = has2DBarcode ? FORM_NUMBER_DATA : FORM_NUMBER_SUMMARY;
+            int twoDBarcode = has2DBarcode ? 1 : 0;
+            string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{readingDirection}";
+
             // Generate CODE128C barcode using ZXing
-            var writer = new ZXing.SkiaSharp.BarcodeWriter
+            var writer = new BarcodeWriter
             {
                 Format = BarcodeFormat.CODE_128,
                 Options = new EncodingOptions
                 {
-                    Height = (int)(BARCODE_HEIGHT_MM * 300 / 25.4), // Convert mm to pixels at 300 DPI
-                    Width = (int)(BARCODE_WIDTH_MM * 300 / 25.4),
+                    Height = BARCODE_HEIGHT_MM * 6, // Convert mm to pixels at 300 DPI
+                    Width = BARCODE_WIDTH_MM * 2,
                     Margin = 0,
-                    PureBarcode = false // Show text below barcode
+                    NoPadding = true,
+                    PureBarcode = false, // Show text below barcode
+                    GS1Format = true
                 }
             };
 
@@ -261,12 +256,12 @@ namespace IbkrToEtax
             string totalTaxValue = root?.Attributes?["totalTaxValue"]?.Value ?? "0";
             string totalGrossRevenue = root?.Attributes?["totalGrossRevenueB"]?.Value ?? "0";
             string totalWithholdingTax = root?.Attributes?["totalWithHoldingTaxClaim"]?.Value ?? "0";
-            
+
             // Client and institution information
             string clientNumber = xmlDoc.SelectSingleNode("//ech:client", nsmgr)?.Attributes?["clientNumber"]?.Value ?? "N/A";
             string institutionName = xmlDoc.SelectSingleNode("//ech:institution", nsmgr)?.Attributes?["name"]?.Value ?? "N/A";
             string depotNumber = xmlDoc.SelectSingleNode("//ech:depot", nsmgr)?.Attributes?["depotNumber"]?.Value ?? "N/A";
-            
+
             int securityCount = xmlDoc.SelectNodes("//ech:security", nsmgr)?.Count ?? 0;
             int paymentCount = xmlDoc.SelectNodes("//ech:payment", nsmgr)?.Count ?? 0;
             int mutationCount = xmlDoc.SelectNodes("//ech:stock", nsmgr)?.Count ?? 0;
@@ -288,22 +283,22 @@ namespace IbkrToEtax
             // Left column content
             var leftColumn = new Paragraph()
                 .SetFontSize(12);
-            
+
             leftColumn.Add(new Text("Tax Period:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{taxPeriod} ({periodFrom} to {periodTo})\n\n");
-            
+
             leftColumn.Add(new Text("Canton:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{canton}\n\n");
-            
+
             leftColumn.Add(new Text("Client Number:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{clientNumber}\n\n");
-            
+
             leftColumn.Add(new Text("Financial Institution:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{institutionName}\n\n");
-            
+
             leftColumn.Add(new Text("Depot Number:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{depotNumber}\n\n");
-            
+
             leftColumn.Add(new Text("Securities: ").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             leftColumn.Add($"{securityCount}\n");
             leftColumn.Add(new Text("Payments: ").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
@@ -314,22 +309,22 @@ namespace IbkrToEtax
             // Right column content
             var rightColumn = new Paragraph()
                 .SetFontSize(12);
-            
+
             rightColumn.Add(new Text("Total Tax Value:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             rightColumn.Add($"CHF {decimal.Parse(totalTaxValue):N2}\n\n");
-            
+
             rightColumn.Add(new Text("Total Gross Revenue:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             rightColumn.Add($"CHF {decimal.Parse(totalGrossRevenue):N2}\n\n");
-            
+
             rightColumn.Add(new Text("Total Withholding Tax:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
             rightColumn.Add($"CHF {decimal.Parse(totalWithholdingTax):N2}\n\n");
-            
+
             // Add position breakdown by category
             var securities = xmlDoc.SelectNodes("//ech:security", nsmgr);
             if (securities != null && securities.Count > 0)
             {
                 rightColumn.Add(new Text("Position Summary:\n").SetFont(PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD)));
-                
+
                 decimal totalPositionValue = 0;
                 var positionsByCategory = new Dictionary<string, (int count, decimal value)>
                 {
@@ -338,7 +333,7 @@ namespace IbkrToEtax
                     ["BOND"] = (0, 0),
                     ["OPTION"] = (0, 0)
                 };
-                
+
                 foreach (XmlNode security in securities)
                 {
                     var taxValueNode = security.SelectSingleNode("ech:taxValue", nsmgr);
@@ -347,7 +342,7 @@ namespace IbkrToEtax
                         string category = security.Attributes?["securityCategory"]?.Value ?? "OTHER";
                         decimal value = decimal.Parse(taxValueNode.Attributes?["value"]?.Value ?? "0");
                         totalPositionValue += value;
-                        
+
                         // Update category totals
                         if (positionsByCategory.ContainsKey(category))
                         {
@@ -360,7 +355,7 @@ namespace IbkrToEtax
                         }
                     }
                 }
-                
+
                 foreach (var kvp in positionsByCategory.OrderByDescending(x => x.Value.value))
                 {
                     if (kvp.Value.count > 0)
@@ -382,7 +377,7 @@ namespace IbkrToEtax
             // Add columns to table
             table.AddCell(new iText.Layout.Element.Cell().Add(leftColumn).SetBorder(iText.Layout.Borders.Border.NO_BORDER));
             table.AddCell(new iText.Layout.Element.Cell().Add(rightColumn).SetBorder(iText.Layout.Borders.Border.NO_BORDER));
-            
+
             document.Add(table);
 
             // Add barcode info at the bottom
@@ -395,14 +390,15 @@ namespace IbkrToEtax
             barcodeInfo.Add($"Barcode Pages: {barcodePageCount}");
             document.Add(barcodeInfo);
 
-            // Add CODE128C barcode to summary page (has2DBarcode = false since no PDF417 on this page)
-            var summaryCode128Image = GenerateCode128Barcode(1, false, 2, 1);
+            // Add CODE128C barcode to summary page (Form 197, no eCH-0196 data)
+            var summaryCode128Image = GenerateCode128Barcode(1, false, 0, 2);
             var summaryCode128ImageData = ImageDataFactory.Create(summaryCode128Image);
-            var summaryPdfCode128 = new iText.Layout.Element.Image(summaryCode128ImageData);
-            summaryPdfCode128.Scale(0.4f, 0.4f);
-            float summaryCode128LeftMargin = 5 * 72 / 25.4f;
-            float summaryCode128TopMargin = 10 * 72 / 25.4f;
-            summaryPdfCode128.SetFixedPosition(1, summaryCode128LeftMargin, pageHeight - summaryCode128TopMargin - summaryPdfCode128.GetImageScaledHeight());
+            var summaryPdfCode128 = new Image(summaryCode128ImageData);
+            summaryPdfCode128.ScaleToFit(BARCODE_WIDTH_MM * 5, BARCODE_HEIGHT_MM * 5);
+            summaryPdfCode128.SetRotationAngle(3 * Math.PI / 2); // Rotate 90° clockwise
+            float code128X = 0.5f * (float)CM_TO_POINTS; // 5mm
+            float code128Y = pageHeight - 1.0f * (float)CM_TO_POINTS; // 10mm to points
+            summaryPdfCode128.SetFixedPosition(1, code128X, code128Y);
             document.Add(summaryPdfCode128);
 
             // Add page number to summary page
@@ -415,32 +411,30 @@ namespace IbkrToEtax
             // Add PDF417 barcode pages
             for (int pageIdx = 0; pageIdx < barcodePageCount; pageIdx++)
             {
-                pdf.AddNewPage();
+                pdf.AddNewPage(); // Landscape orientation
                 int currentPageNumber = pageIdx + 2; // +2 because page 1 is summary
-                
+
                 pageWidth = PageSize.A4.Rotate().GetWidth();
                 pageHeight = PageSize.A4.Rotate().GetHeight();
 
                 // eCH-0270 margins (landscape orientation)
                 float marginRight = MARGIN_RIGHT_CM * (float)CM_TO_POINTS;
-            
+
                 // eCH-0270 spacing in points
                 float spacingNormal = SPACING_SEGMENTS_CM * (float)CM_TO_POINTS;
+                float spacingLarge = SPACING_FOLD_CM * (float)CM_TO_POINTS;
 
-                // Add CODE128C barcode for this page (at top-left)
-                // Orientation: 2 (landscape), Reading direction: 1
-                var code128Image = GenerateCode128Barcode(currentPageNumber, true, 2, 1);
+                // Add CODE128C barcode for this page (Form 196 with eCH-0196 data)
+                // has2DBarcode is always set to 0 (false) in the barcode, Orientation: 2 (landscape), Reading direction: 1
+                var code128Image = GenerateCode128Barcode(currentPageNumber, has2DBarcode: true, 0, 2);
                 var code128ImageData = ImageDataFactory.Create(code128Image);
-                var pdfCode128 = new iText.Layout.Element.Image(code128ImageData);
+                var pdfCode128 = new Image(code128ImageData);
 
                 // Scale to 40% to reduce barcode size while keeping text readable
-                pdfCode128.Scale(0.4f, 0.4f);
+                pdfCode128.ScaleToFit(BARCODE_WIDTH_MM * 5, BARCODE_HEIGHT_MM * 5);
+                pdfCode128.SetRotationAngle(3 * Math.PI / 2); // Rotate 90° clockwise
 
-                // Position CODE128C at top-left with 5mm left margin, 10mm top margin
-                float code128LeftMargin = 5 * 72 / 25.4f; // 5mm to points
-                float code128TopMargin = 10 * 72 / 25.4f; // 10mm to points
-                
-                pdfCode128.SetFixedPosition(currentPageNumber, code128LeftMargin, pageHeight - code128TopMargin - pdfCode128.GetImageScaledHeight());
+                pdfCode128.SetFixedPosition(currentPageNumber, code128X, code128Y);
                 document.Add(pdfCode128);
 
                 // Add page number
@@ -454,7 +448,7 @@ namespace IbkrToEtax
                 // Layout: 3 columns × 2 rows, left to right
                 // Segments: 1 2 3 (top row), 4 5 6 (bottom row)
                 // Larger spacing between segments 3-4 (fold line)
-                
+
                 int segmentsOnThisPage = Math.Min(barcodesPerPage, barcodeImages.Count - pageIdx * barcodesPerPage);
 
                 // Add PDF417 barcodes with precise eCH-0270 positioning
@@ -467,38 +461,40 @@ namespace IbkrToEtax
 
                     var imageData = ImageDataFactory.Create(barcodeImages[barcodeIdx]);
                     var pdfImage = new iText.Layout.Element.Image(imageData);
-                    
-                    // Set original dimensions BEFORE rotation
-                    pdfImage.ScaleToFit(PDF417_WIDTH_POINTS, PDF417_HEIGHT_POINTS);
-                    
-                    // Rotate 90° counterclockwise
-                    pdfImage.SetRotationAngle(Math.PI / 2); // 90° in radians
-                    
-                    // After rotation, visual dimensions are swapped
-                    float rotatedWidth = PDF417_HEIGHT_POINTS;   // 2.8cm becomes width
-                    float rotatedHeight = PDF417_WIDTH_POINTS;   // 12.18cm becomes height
+
+                    // BEFORE rotation: swap dimensions because 90° rotation will swap them back
+                    // We want visual result: width=12.18cm, height=4.2cm
+                    // So before rotation set: width=4.2cm, height=12.18cm
+                    pdfImage = pdfImage.ScaleAbsolute(PDF417_WIDTH_POINTS, PDF417_HEIGHT_POINTS);
+
+                    // Rotate 90° clockwise
+                    pdfImage = pdfImage.SetRotationAngle(3 * Math.PI / 2); // 90° in radians
 
                     // Position from RIGHT to LEFT in a single row
                     // X position: start from right edge, move left for each barcode
-                    float xPosition = pageWidth - marginRight - (i + 1) * rotatedWidth - i * spacingNormal;
-                    
-                    // Y position: center vertically on the page
-                    // Account for the rotation: the image will extend upward by rotatedHeight
-                    float yPosition = (pageHeight - rotatedHeight) / 2;
-                    
+                    float spacing = i * spacingNormal;
+                    // Add extra spacing after 3rd barcode for fold line
+                    if (i >= 3) { spacing += spacingLarge; }
+                    float xPosition = pageWidth - marginRight - (i + 1) * PDF417_HEIGHT_POINTS - spacing;
+
+                    // Y position: ensure at least 5cm from top of barcode to page border
+                    // The barcode extends upward by rotatedHeight from yPosition
+                    float topMargin = MARGIN_TOP_CM * (float)CM_TO_POINTS; // 5cm minimum
+                    float yPosition = pageHeight - topMargin;
+
                     pdfImage.SetFixedPosition(currentPageNumber, xPosition, yPosition);
                     document.Add(pdfImage);
                 }
             }
 
             document.Close();
-            
+
             Console.WriteLine($"✓ Generated PDF with PDF417 and CODE128C barcodes: {outputPath}");
             Console.WriteLine($"  Pages: {totalPages}");
             Console.WriteLine($"  Barcodes per page: {barcodesPerPage}");
             Console.WriteLine($"  Total barcodes: {barcodeImages.Count}");
             Console.WriteLine($"  Barcode ID: {barcodeId}");
-            Console.WriteLine($"  Barcode dimensions: {PDF417_WIDTH_CM:F2} × {PDF417_HEIGHT_CM:F2} cm (scaled for 97% print)");
+            Console.WriteLine($"  Barcode dimensions: {PDF417_TARGET_WIDTH_CM:F2} × {PDF417_TARGET_HEIGHT_CM:F2} cm (scaled for 97% print)");
         }
     }
 }

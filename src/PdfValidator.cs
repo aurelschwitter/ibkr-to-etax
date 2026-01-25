@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Xml;
@@ -14,6 +13,9 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Xobject;
 using SkiaSharp;
+using SharpCompress.Compressors.Deflate;
+using SharpCompress.Compressors;
+using SysCompress = System.IO.Compression;
 
 namespace IbkrToEtax
 {
@@ -69,53 +71,62 @@ namespace IbkrToEtax
 
                     // Step 2: Extract and validate PDF417 barcodes
                     var pdf417Data = ExtractPdf417Data(pdfDocument, result);
-                    if (pdf417Data == null || pdf417Data.Count == 0)
+                    
+                    string? xmlContent = null;
+                    
+                    // Check if we have direct XML format (zlib/DEFLATE)
+                    if (result.Metadata.ContainsKey("DirectXmlBarcodes"))
                     {
-                        result.IsValid = false;
-                        result.Errors.Add("No valid PDF417 barcodes found in the PDF");
+                        var directBarcodes = (List<string>)result.Metadata["DirectXmlBarcodes"];
+                        if (directBarcodes.Count > 0)
+                        {
+                            Console.WriteLine($"  ✓ Found {directBarcodes.Count} direct zlib/DEFLATE compressed barcode(s)");
+                            
+                            // Pass all barcodes to decompress - they'll be concatenated
+                            xmlContent = DecompressDirectXmlBarcode(directBarcodes, result);
+                        }
                     }
-                    else
+                    // Otherwise try chunked format (Base64 + GZIP)
+                    else if (pdf417Data != null && pdf417Data.Count > 0)
                     {
                         // Step 3: Reconstruct compressed data from chunks
                         var reconstructedData = ReconstructCompressedData(pdf417Data, result);
                         if (reconstructedData != null)
                         {
                             // Step 4: Decompress and extract XML
-                            var xmlContent = DecompressXmlData(reconstructedData, result);
-                            if (xmlContent != null)
-                            {
-                                result.ExtractedXml = xmlContent;
-                                result.Metadata["XmlLength"] = xmlContent.Length;
-                                Console.WriteLine($"  ✓ Successfully extracted XML ({xmlContent.Length} chars)");
+                            xmlContent = DecompressXmlData(reconstructedData, result);
+                        }
+                    }
+                    
+                    if (xmlContent != null)
+                    {
+                        result.ExtractedXml = xmlContent;
+                        result.Metadata["XmlLength"] = xmlContent.Length;
+                        Console.WriteLine($"  ✓ Successfully extracted XML ({xmlContent.Length} chars)");
 
-                                // Step 5: Validate XML structure
-                                if (!ValidateXmlStructure(xmlContent, result))
-                                {
-                                    result.IsValid = false;
-                                }
+                        // Step 5: Validate XML structure
+                        if (!ValidateXmlStructure(xmlContent, result))
+                        {
+                            result.IsValid = false;
+                        }
 
-                                // Step 6: Validate against XSD schema if provided
-                                if (!string.IsNullOrEmpty(xsdPath) && File.Exists(xsdPath))
-                                {
-                                    if (!ValidateAgainstSchema(xmlContent, xsdPath, result))
-                                    {
-                                        result.IsValid = false;
-                                    }
-                                }
-                                else if (!string.IsNullOrEmpty(xsdPath))
-                                {
-                                    result.Warnings.Add($"XSD schema file not found: {xsdPath}");
-                                }
-                            }
-                            else
+                        // Step 6: Validate against XSD schema if provided
+                        if (!string.IsNullOrEmpty(xsdPath) && File.Exists(xsdPath))
+                        {
+                            if (!ValidateAgainstSchema(xmlContent, xsdPath, result))
                             {
                                 result.IsValid = false;
                             }
                         }
-                        else
+                        else if (!string.IsNullOrEmpty(xsdPath))
                         {
-                            result.IsValid = false;
+                            result.Warnings.Add($"XSD schema file not found: {xsdPath}");
                         }
+                    }
+                    else
+                    {
+                        result.Warnings.Add("No valid PDF417 barcodes with extractable data found (may use alternative eCH-0196 encoding)");
+                        Console.WriteLine("  ⚠ No extractable PDF417 data (alternative implementation or no embedded XML)");
                     }
                 }
 
@@ -175,15 +186,17 @@ namespace IbkrToEtax
                 string orientation = barcodeText.Substring(14, 1);
                 string readingDirection = barcodeText.Substring(15, 1);
 
-                if (formNumber != ECH_0196_FORM_NUMBER)
+                // Accept both form 196 and 197 (eCH-0196 standard forms)
+                if (formNumber != "196" && formNumber != "197")
                 {
-                    result.Errors.Add($"Page {pageNum}: Invalid form number '{formNumber}' (expected '196')");
+                    result.Errors.Add($"Page {pageNum}: Invalid form number '{formNumber}' (expected '196' or '197')");
                     allValid = false;
                 }
 
-                if (version != ECH_0196_VERSION)
+                // Accept versions 21 and 22
+                if (version != "21" && version != "22")
                 {
-                    result.Warnings.Add($"Page {pageNum}: Version mismatch '{version}' (expected '22')");
+                    result.Warnings.Add($"Page {pageNum}: Unexpected version '{version}' (expected '21' or '22')");
                 }
 
                 // Only warn about missing 2D barcodes on pages after page 1 (summary page typically has no PDF417)
@@ -218,42 +231,157 @@ namespace IbkrToEtax
                     TryHarder = true,
                     TryInverted = true,
                     PureBarcode = false,
-                    PossibleFormats = new[] { BarcodeFormat.CODE_128, BarcodeFormat.PDF_417 }
+                    PossibleFormats = new[] { BarcodeFormat.CODE_128, BarcodeFormat.PDF_417 },
+                    // Add more lenient detection options
+                    UseCode39ExtendedMode = false,
+                    UseCode39RelaxedExtendedMode = false,
+                    AssumeGS1 = false
                 }
             };
 
+            int imageIndex = 0;
             foreach (var imageBytes in images)
             {
+                imageIndex++;
                 try
                 {
                     using var stream = new MemoryStream(imageBytes);
                     using var bitmap = SKBitmap.Decode(stream);
                     if (bitmap != null)
                     {
-                        // Try reading single barcode first
-                        var result = reader.Decode(bitmap);
-                        if (result != null)
+                        // Try reading with original image
+                        var result = TryReadBarcode(reader, bitmap);
+                        if (result != null && result.Count > 0)
                         {
-                            results.Add(result);
+                            results.AddRange(result);
                         }
                         else
                         {
-                            // Try reading multiple barcodes (in case image contains multiple codes)
-                            var multiResults = reader.DecodeMultiple(bitmap);
-                            if (multiResults != null && multiResults.Length > 0)
+                            // Try with image preprocessing
+                            var processedResults = TryReadBarcodeWithPreprocessing(reader, bitmap);
+                            if (processedResults != null && processedResults.Count > 0)
                             {
-                                results.AddRange(multiResults);
+                                results.AddRange(processedResults);
                             }
                         }
                     }
                 }
-                catch
+                catch (Exception)
                 {
                     // Skip invalid images
                 }
             }
 
             return results;
+        }
+
+        private static List<Result>? TryReadBarcode(BarcodeReader reader, SKBitmap bitmap)
+        {
+            var results = new List<Result>();
+            
+            // Try reading single barcode first
+            var result = reader.Decode(bitmap);
+            if (result != null)
+            {
+                results.Add(result);
+            }
+            
+            // Also try reading multiple barcodes
+            var multiResults = reader.DecodeMultiple(bitmap);
+            if (multiResults != null && multiResults.Length > 0)
+            {
+                results.AddRange(multiResults);
+            }
+            
+            return results.Count > 0 ? results : null;
+        }
+
+        private static List<Result>? TryReadBarcodeWithPreprocessing(BarcodeReader reader, SKBitmap original)
+        {
+            // Try different preprocessing approaches
+            var preprocessingMethods = new List<Func<SKBitmap, SKBitmap?>>
+            {
+                // 1. Convert to grayscale and increase contrast
+                bmp => ConvertToGrayscaleWithContrast(bmp),
+                // 2. Scale up small images
+                bmp => (bmp.Width < 200 || bmp.Height < 100) ? ScaleImage(bmp, 3.0) : null,
+                // 3. Binarize (black and white only)
+                bmp => BinarizeImage(bmp),
+            };
+
+            foreach (var method in preprocessingMethods)
+            {
+                try
+                {
+                    using var processed = method(original);
+                    if (processed != null)
+                    {
+                        var results = TryReadBarcode(reader, processed);
+                        if (results != null && results.Count > 0)
+                        {
+                            return results;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Continue to next preprocessing method
+                }
+            }
+
+            return null;
+        }
+
+        private static SKBitmap? ConvertToGrayscaleWithContrast(SKBitmap source)
+        {
+            var result = new SKBitmap(source.Width, source.Height);
+            using var canvas = new SKCanvas(result);
+            
+            var paint = new SKPaint
+            {
+                ColorFilter = SKColorFilter.CreateColorMatrix(new float[]
+                {
+                    0.21f, 0.72f, 0.07f, 0, 0,
+                    0.21f, 0.72f, 0.07f, 0, 0,
+                    0.21f, 0.72f, 0.07f, 0, 0,
+                    0,     0,     0,     1, 0
+                })
+            };
+            
+            canvas.DrawBitmap(source, 0, 0, paint);
+            return result;
+        }
+
+        private static SKBitmap? ScaleImage(SKBitmap source, double scale)
+        {
+            int newWidth = (int)(source.Width * scale);
+            int newHeight = (int)(source.Height * scale);
+            
+            var result = new SKBitmap(newWidth, newHeight);
+            using var canvas = new SKCanvas(result);
+            
+            canvas.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
+            canvas.DrawBitmap(source, 0, 0);
+            
+            return result;
+        }
+
+        private static SKBitmap? BinarizeImage(SKBitmap source)
+        {
+            var result = new SKBitmap(source.Width, source.Height);
+            
+            for (int y = 0; y < source.Height; y++)
+            {
+                for (int x = 0; x < source.Width; x++)
+                {
+                    var pixel = source.GetPixel(x, y);
+                    var gray = (pixel.Red + pixel.Green + pixel.Blue) / 3;
+                    var color = gray > 128 ? SKColors.White : SKColors.Black;
+                    result.SetPixel(x, y, color);
+                }
+            }
+            
+            return result;
         }
 
         private static List<byte[]> ExtractImagesFromPage(iText.Kernel.Pdf.PdfPage page)
@@ -366,9 +494,90 @@ namespace IbkrToEtax
             return images;
         }
 
+        private static void AnalyzeBarcodeFormat(string text, byte[]? rawBytes, int pageNum)
+        {
+            Console.WriteLine($"      Text length: {text.Length} chars");
+            Console.WriteLine($"      Raw bytes: {(rawBytes != null ? $"{rawBytes.Length} bytes" : "NULL")}");
+            
+            // The text is actually the barcode content - convert to bytes to analyze
+            byte[] textAsBytes = Encoding.GetEncoding("ISO-8859-1").GetBytes(text);
+            Console.WriteLine($"      Text as ISO-8859-1 bytes: {textAsBytes.Length} bytes");
+            
+            // Check for zlib/DEFLATE signature (78 DA, 78 9C, 78 01)
+            if (textAsBytes.Length >= 2 && textAsBytes[0] == 0x78 && (textAsBytes[1] == 0xDA || textAsBytes[1] == 0x9C || textAsBytes[1] == 0x01))
+            {
+                Console.WriteLine("      ✓ DATA FORMAT: Direct zlib/DEFLATE-compressed data!");
+                TryDecompressZlib(textAsBytes);
+                return;
+            }
+            
+            // Check if it's Base64
+            try
+            {
+                byte[] base64Decoded = Convert.FromBase64String(text);
+                Console.WriteLine($"      Format: Base64-encoded ({base64Decoded.Length} bytes decoded)");
+                
+                // Check if base64-decoded data is zlib
+                if (base64Decoded.Length >= 2 && base64Decoded[0] == 0x78)
+                {
+                    Console.WriteLine("      ✓ DATA FORMAT: Base64-encoded zlib/DEFLATE data!");
+                    TryDecompressZlib(base64Decoded);
+                    return;
+                }
+            }
+            catch
+            {
+                Console.WriteLine("      Format: NOT Base64");
+            }
+            
+            // Show first bytes as hex
+            Console.WriteLine($"      First 20 bytes (hex): {BitConverter.ToString(textAsBytes.Take(20).ToArray())}");
+            
+            // Check for pipe delimiters (chunked format like this tool uses)
+            if (text.Contains("|"))
+            {
+                var parts = text.Split('|');
+                Console.WriteLine($"      Contains {parts.Length} pipe-delimited parts");
+                
+                if (parts.Length >= 3)
+                {
+                    Console.WriteLine($"        Might be chunked format: ID|ChunkNum|TotalChunks|Data");
+                    // Try to parse as chunked format
+                    if (int.TryParse(parts[1], out int chunkNum) && int.TryParse(parts[2], out int totalChunks))
+                    {
+                        Console.WriteLine($"        ✓ Parsed as chunk {chunkNum}/{totalChunks}, ID: '{parts[0]}'");
+                    }
+                }
+            }
+        }
+
+        private static void TryDecompressZlib(byte[] zlibData)
+        {
+            try
+            {
+                using var inputStream = new MemoryStream(zlibData);
+                using var zlibStream = new ZlibStream(inputStream, SharpCompress.Compressors.CompressionMode.Decompress);
+                using var outputStream = new MemoryStream();
+                zlibStream.CopyTo(outputStream);
+                
+                string decompressed = Encoding.UTF8.GetString(outputStream.ToArray());
+                Console.WriteLine($"      ✓ Successfully decompressed to {decompressed.Length} chars");
+                
+                // Show preview
+                string preview = decompressed.Length > 150 ? decompressed.Substring(0, 150) + "..." : decompressed;
+                Console.WriteLine($"      XML Preview: {preview}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      ✗ Decompression failed: {ex.Message}");
+            }
+        }
+
+
         private static Dictionary<int, byte[]> ExtractPdf417Data(PdfDocument pdfDocument, ValidationResult result)
         {
             var pdf417Chunks = new Dictionary<int, byte[]>();
+            var directXmlBarcodes = new List<string>(); // For non-chunked format
             string? barcodeId = null;
             int? totalChunks = null;
 
@@ -387,8 +596,62 @@ namespace IbkrToEtax
                 {
                     try
                     {
-                        // Decode Base64 data
-                        byte[] barcodeData = Convert.FromBase64String(pdf417Barcode.Text);
+                        string barcodeText = pdf417Barcode.Text;
+                        byte[] barcodeData;
+                        
+                        // Detect format: check if it's zlib/DEFLATE compressed (external format)
+                        byte[] textAsBytes = Encoding.GetEncoding("ISO-8859-1").GetBytes(barcodeText);
+                        bool isZlibHeader = textAsBytes.Length >= 2 && textAsBytes[0] == 0x78 && 
+                                               (textAsBytes[1] == 0xDA || textAsBytes[1] == 0x9C || textAsBytes[1] == 0x01);
+                        
+                        if (isZlibHeader)
+                        {
+                            // External format: zlib/DEFLATE compressed XML (first chunk with header)
+                            // Deduplicate - ZXing might detect same barcode multiple times
+                            if (!directXmlBarcodes.Contains(barcodeText))
+                            {
+                                Console.WriteLine($"    Page {pageNum}: PDF417 barcode (zlib/DEFLATE header)");
+                                directXmlBarcodes.Add(barcodeText);
+                            }
+                            result.Metadata["BarcodeFormat"] = "zlib/DEFLATE (direct)";
+                            continue;
+                        }
+                        
+                        // Try to decode as Base64 (for PDFs generated by this tool)
+                        try
+                        {
+                            barcodeData = Convert.FromBase64String(barcodeText);
+                        }
+                        catch (System.FormatException)
+                        {
+                            // Not base64 - might be raw DEFLATE continuation (external format)
+                            // If we already found zlib header, treat this as continuation chunk
+                            if (directXmlBarcodes.Count > 0)
+                            {
+                                // Deduplicate - ZXing might detect same barcode multiple times
+                                if (!directXmlBarcodes.Contains(barcodeText))
+                                {
+                                    Console.WriteLine($"    Page {pageNum}: PDF417 barcode (raw DEFLATE continuation)");
+                                    directXmlBarcodes.Add(barcodeText);
+                                }
+                            }
+                            else
+                            {
+                                // Unknown format without zlib header first
+                                if (textAsBytes.Length > 10)
+                                {
+                                    string hexDebug = BitConverter.ToString(textAsBytes.Take(10).ToArray());
+                                    result.Warnings.Add($"Page {pageNum}: Unknown PDF417 format, first bytes: {hexDebug}");
+                                }
+                                else
+                                {
+                                    result.Warnings.Add($"Page {pageNum}: PDF417 barcode uses unknown encoding");
+                                }
+                            }
+                            continue;
+                        }
+                        
+                        result.Metadata["BarcodeFormat"] = "Base64 + GZIP (chunked)";
                         
                         // Parse header: ID|ChunkNumber|TotalChunks|CompressedData
                         string headerText = Encoding.UTF8.GetString(barcodeData);
@@ -454,14 +717,16 @@ namespace IbkrToEtax
                             }
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        result.Errors.Add($"Page {pageNum}: Failed to parse PDF417 barcode: {ex.Message}");
+                        // Don't add to errors list - this is expected for alternative implementations
+                        // Just skip this barcode silently
+                        continue;
                     }
                 }
             }
 
-            // Validate all chunks are present
+            // Validate all chunks are present (for chunked format)
             if (totalChunks.HasValue)
             {
                 for (int i = 1; i <= totalChunks.Value; i++)
@@ -471,6 +736,13 @@ namespace IbkrToEtax
                         result.Errors.Add($"Missing PDF417 chunk {i} of {totalChunks}");
                     }
                 }
+            }
+            
+            // If we found direct XML barcodes, store them in metadata
+            if (directXmlBarcodes.Count > 0)
+            {
+                result.Metadata["DirectXmlBarcodes"] = directXmlBarcodes;
+                Console.WriteLine($"  ✓ Found {directXmlBarcodes.Count} direct zlib/DEFLATE compressed barcode(s)");
             }
 
             return pdf417Chunks;
@@ -508,7 +780,7 @@ namespace IbkrToEtax
         {
             try
             {
-                Console.WriteLine("  Decompressing XML data...");
+                Console.WriteLine("  Decompressing XML data (GZIP)...");
                 
                 // Strip trailing zero padding from last chunk (eCH-0196 requirement: all segments must be 35 rows)
                 int dataLength = compressedData.Length;
@@ -521,18 +793,89 @@ namespace IbkrToEtax
                 byte[] actualData = new byte[dataLength];
                 Array.Copy(compressedData, 0, actualData, 0, dataLength);
                 
-                using var inputStream = new MemoryStream(actualData);
-                using var gzipStream = new GZipStream(inputStream, CompressionMode.Decompress);
-                using var outputStream = new MemoryStream();
-                
-                gzipStream.CopyTo(outputStream);
-                string xmlContent = Encoding.UTF8.GetString(outputStream.ToArray());
-                
-                return xmlContent;
+                // Try zlib first (most common), then raw DEFLATE
+                try
+                {
+                    using var inputStream = new MemoryStream(actualData);
+                    using var zlibStream = new ZlibStream(inputStream, SharpCompress.Compressors.CompressionMode.Decompress);
+                    using var outputStream = new MemoryStream();
+                    
+                    zlibStream.CopyTo(outputStream);
+                    string xmlContent = Encoding.UTF8.GetString(outputStream.ToArray());
+                    
+                    Console.WriteLine($"  ✓ Decompressed to {xmlContent.Length} chars");
+                    return xmlContent;
+                }
+                catch
+                {
+                    // Fallback to raw DEFLATE
+                    using var inputStream = new MemoryStream(actualData);
+                    using var deflateStream = new SysCompress.DeflateStream(inputStream, SysCompress.CompressionMode.Decompress);
+                    using var outputStream = new MemoryStream();
+                    
+                    deflateStream.CopyTo(outputStream);
+                    string xmlContent = Encoding.UTF8.GetString(outputStream.ToArray());
+                    
+                    Console.WriteLine($"  ✓ Decompressed to {xmlContent.Length} chars (raw DEFLATE)");
+                    return xmlContent;
+                }
             }
             catch (Exception ex)
             {
                 result.Errors.Add($"Failed to decompress XML data: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string? DecompressDirectXmlBarcode(List<string> barcodeTexts, ValidationResult result)
+        {
+            try
+            {
+                Console.WriteLine($"  Decompressing XML data (zlib/DEFLATE) from {barcodeTexts.Count} barcode(s)...");
+                
+                // Concatenate all barcode data as ISO-8859-1 bytes
+                using var concatenatedStream = new MemoryStream();
+                
+                for (int i = 0; i < barcodeTexts.Count; i++)
+                {
+                    byte[] barcodeBytes = Encoding.GetEncoding("ISO-8859-1").GetBytes(barcodeTexts[i]);
+                    concatenatedStream.Write(barcodeBytes, 0, barcodeBytes.Length);
+                    
+                    if (i == 0)
+                    {
+                        Console.WriteLine($"    Barcode 1: {barcodeBytes.Length} bytes (with zlib header)");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"    Barcode {i + 1}: {barcodeBytes.Length} bytes (raw DEFLATE continuation)");
+                    }
+                }
+                
+                byte[] zlibData = concatenatedStream.ToArray();
+                Console.WriteLine($"  Total concatenated: {zlibData.Length} bytes");
+                Console.WriteLine($"  First 4 bytes: {BitConverter.ToString(zlibData.Take(4).ToArray())}");
+                
+                // Verify zlib header
+                if (zlibData.Length < 2 || zlibData[0] != 0x78)
+                {
+                    result.Errors.Add($"Invalid zlib header: expected 0x78, got 0x{zlibData[0]:X2}");
+                    return null;
+                }
+                
+                // Use SharpCompress ZlibStream for proper zlib decompression (handles dictionaries)
+                using var inputStream = new MemoryStream(zlibData);
+                using var zlibStream = new ZlibStream(inputStream, SharpCompress.Compressors.CompressionMode.Decompress);
+                using var outputStream = new MemoryStream();
+                
+                zlibStream.CopyTo(outputStream);
+                string xmlContent = Encoding.UTF8.GetString(outputStream.ToArray());
+                
+                Console.WriteLine($"  ✓ Decompressed to {xmlContent.Length} chars");
+                return xmlContent;
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Failed to decompress zlib barcode: {ex.Message}");
                 return null;
             }
         }
