@@ -49,8 +49,6 @@ Always cross-check the output before submitting to tax authorities.
 
 ## 🚀 Quick Start
 
-## 🚀 Quick Start
-
 ### 1. Install Prerequisites
 
 Ensure you have .NET 9.0 SDK installed:
@@ -62,7 +60,7 @@ winget install Microsoft.DotNet.SDK.9
 ### 2. Build the Project
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/aurelschwitter/ibkr-to-etax.git
 cd ibkr-to-etax
 dotnet build -c Release
 ```
@@ -103,15 +101,15 @@ Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax)
 
 ![Section selection](docs/ibkr-flex-query-sections.png)
 
-| Section                                                 | Configuration                                                                                                    |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Account Information**                                 | Select All Columns                                                                                               |
-| **Cash Transactions**                                   | Types: Dividends, Withholding Tax, 871(m) Withholding, Broker Fees, Deposits & Withdrawals<br>Select All Columns |
-| **Interest Accruals**                                   | Select All Columns                                                                                               |
-| **Net Asset Value (NAV) in Base**                       | Select All Columns                                                                                               |
-| **Open Positions**                                      | Detail Level: **Summary**<br>Select All Columns                                                                  |
-| **Realized and Unrealized Performance Summary in Base** | Select All Columns                                                                                               |
-| **Trades**                                              | Select All Columns                                                                                               |
+| Section                                                 | Configuration                                                                                                        |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Account Information**                                 | Select All Columns                                                                                                   |
+| **Cash Transactions**                                   | **Types**: Dividends, Withholding Tax, 871(m) Withholding, Broker Fees, Deposits & Withdrawals<br>Select All Columns |
+| **Interest Accruals**                                   | Select All Columns                                                                                                   |
+| **Net Asset Value (NAV) in Base**                       | Select All Columns                                                                                                   |
+| **Open Positions**                                      | Detail Level: **Summary**<br>Select All Columns                                                                      |
+| **Realized and Unrealized Performance Summary in Base** | Select All Columns                                                                                                   |
+| **Trades**                                              | Select All Columns                                                                                                   |
 
 <details>
 <summary>📸 View detailed screenshots</summary>
@@ -122,10 +120,11 @@ Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax)
 **Open Positions Configuration:**
 ![Open positions](docs/ibkr-open-positions.png)
 
-**Delivery Configuration:**
+</details>
+
+Configure **Delivery Configuration**:
 ![Delivery configuration](docs/ibkr-delivery-config.png)
 
-</details>
 
 ### Step 3: Save the Query
 
@@ -159,9 +158,6 @@ Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax)
 ```powershell
 # Basic conversion
 dotnet run -- convert .\input\YourFile.xml
-
-# Or with explicit Release build
-dotnet run -c Release -- convert .\input\YourFile.xml
 ```
 
 **Output:**
