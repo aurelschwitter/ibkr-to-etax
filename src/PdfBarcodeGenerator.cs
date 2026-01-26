@@ -122,8 +122,10 @@ namespace IbkrToEtax
             {
                 int chunkSize = Math.Min(MAX_PDF417_SIZE, data.Length - offset);
 
-                // [MUSS] Pad last chunk to exact size to ensure 35 rows
-                byte[] chunk = new byte[MAX_PDF417_SIZE];
+                // Only pad if this is NOT the last chunk
+                // The last chunk should contain only the actual data without padding
+                bool isLastChunk = (offset + chunkSize >= data.Length);
+                byte[] chunk = new byte[isLastChunk ? chunkSize : MAX_PDF417_SIZE];
                 Array.Copy(data, offset, chunk, 0, chunkSize);
                 chunks.Add(chunk);
 
