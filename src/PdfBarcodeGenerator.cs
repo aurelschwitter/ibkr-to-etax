@@ -122,10 +122,8 @@ namespace IbkrToEtax
             {
                 int chunkSize = Math.Min(MAX_PDF417_SIZE, data.Length - offset);
 
-                // Only pad if this is NOT the last chunk
-                // The last chunk should contain only the actual data without padding
-                bool isLastChunk = (offset + chunkSize >= data.Length);
-                byte[] chunk = new byte[isLastChunk ? chunkSize : MAX_PDF417_SIZE];
+                // Store actual data size for the last chunk
+                byte[] chunk = new byte[chunkSize];
                 Array.Copy(data, offset, chunk, 0, chunkSize);
                 chunks.Add(chunk);
 
@@ -151,6 +149,17 @@ namespace IbkrToEtax
                 // [MUSS] 13 columns, 35 rows for ALL segments (including last)
                 // [MUSS] EC-Level 4
                 // [MUSS] Image dimensions: 290 x 35 pixels
+                
+                // Pad smaller chunks with null bytes to ensure 35 rows are generated
+                // This is required by eCH-0270 - ALL barcodes must have exactly 35 rows
+                byte[] paddedData = barcodeData;
+                if (barcodeData.Length < MAX_PDF417_SIZE)
+                {
+                    paddedData = new byte[MAX_PDF417_SIZE];
+                    Array.Copy(barcodeData, paddedData, barcodeData.Length);
+                    // Remaining bytes are already zero (null padding)
+                }
+                
                 var writer = new BarcodeWriter
                 {
                     Format = BarcodeFormat.PDF_417,
@@ -163,15 +172,12 @@ namespace IbkrToEtax
                         ErrorCorrection = PDF417_ERROR_CORRECTION, // EC-Level 4
                         Compaction = Compaction.BYTE,
                         PureBarcode = true, // Ensure proper PDF417 rendering with start/stop patterns
-                        // Note: ZXing.Net doesn't expose direct Columns/Rows properties
-                        // The barcode dimensions are calculated based on data size and error correction
-                        // To ensure 35 rows, data must be padded to fill the required capacity
-                        NoPadding = true
+                        NoPadding = false // Allow padding to fill 35 rows
                     },
                 };
 
                 // Encode raw binary data directly using Latin1 to preserve byte values
-                string binaryString = Encoding.Latin1.GetString(barcodeData);
+                string binaryString = Encoding.Latin1.GetString(paddedData);
                 using var bitmap = writer.Write(binaryString);
 
                 // Convert SKBitmap to byte array (PNG)
@@ -183,12 +189,13 @@ namespace IbkrToEtax
             return barcodeImages;
         }
 
-        private static byte[] GenerateCode128Barcode(int pageNumber, bool has2DBarcode, int orientation)
+        private static byte[] GenerateCode128Barcode(int pageNumber, bool isDataPage, int orientation)
         {
             // Build 16-digit CODE128C barcode for eCH-0196
             // Format: 197/196 (form) + 21 (version) + 00000 (org) + 001 (page) + 0 (has2D) + 2 (orient) + 1 (direction)
-            string formNumber = has2DBarcode ? FORM_NUMBER_DATA : FORM_NUMBER_SUMMARY;
-            int twoDBarcode = has2DBarcode ? 1 : 0;
+            // Note: Has2D flag is ALWAYS 0 even when PDF417 barcodes are present (per eCH-0196 spec)
+            string formNumber = isDataPage ? FORM_NUMBER_DATA : FORM_NUMBER_SUMMARY;
+            int twoDBarcode = 0; // Always 0 per eCH-0196 specification
             int posId = 3;
             string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{posId}";
 
@@ -412,8 +419,8 @@ namespace IbkrToEtax
                 float spacingLarge = ADDITIONAL_SPACING_FOLD_CM * (float)CM_TO_POINTS;
 
                 // Add CODE128C barcode for this page (Form 196 with eCH-0196 data)
-                // has2DBarcode is always set to 0 (false) in the barcode, Orientation: 2 (landscape), Reading direction: 1
-                var code128Image = GenerateCode128Barcode(currentPageNumber, has2DBarcode: true, 0);
+                // Has2D flag is always 0 per eCH-0196 spec, Orientation: 0 (landscape), Reading direction: 3
+                var code128Image = GenerateCode128Barcode(currentPageNumber, isDataPage: true, 0);
                 var code128ImageData = ImageDataFactory.Create(code128Image);
                 var pdfCode128 = new Image(code128ImageData);
 

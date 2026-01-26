@@ -186,6 +186,12 @@ namespace IbkrToEtax
                     additionalWithholdingTaxUSA = grossAmountCHF * 0.15m;
                 }
 
+                // Determine GrossRevenueA vs GrossRevenueB based on security country
+                // GrossRevenueA = Swiss securities (CH)
+                // GrossRevenueB = Foreign securities (all others)
+                decimal grossRevenueA = security.Country == "CH" ? grossAmountCHF : 0;
+                decimal grossRevenueB = security.Country != "CH" ? grossAmountCHF : 0;
+
                 security.Payments.Add(new EchPayment
                 {
                     PaymentDate = DateTime.Parse(settleDate),
@@ -193,8 +199,8 @@ namespace IbkrToEtax
                     Name = "Dividendenzahlung",
                     Quantity = 0,
                     Amount = grossAmountCHF,
-                    GrossRevenueA = 0,  // Swiss securities
-                    GrossRevenueB = grossAmountCHF,  // Foreign securities
+                    GrossRevenueA = grossRevenueA,
+                    GrossRevenueB = grossRevenueB,
                     WithHoldingTaxClaim = taxAmountCHF,
                     AdditionalWithHoldingTaxUSA = additionalWithholdingTaxUSA
                 });
