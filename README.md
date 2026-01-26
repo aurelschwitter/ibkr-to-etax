@@ -39,14 +39,6 @@ Always cross-check the output before submitting to tax authorities.
 - **Withholding tax** claims
 - **Cash balances** at year-end
 
-### 🔍 PDF Validation (Experimental)
-- Validates CODE128C and PDF417 barcodes
-- Extracts embedded XML from eCH-0196 PDFs
-- Decompresses zlib/DEFLATE compressed data
-- XSD schema validation support
-
-> **Note:** PDF generation with barcodes is experimental and not required for tax filing. XML upload is the recommended method.
-
 ## 🚀 Quick Start
 
 ### 1. Install Prerequisites
