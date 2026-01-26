@@ -249,7 +249,8 @@ tests/
 
 Contributions are welcome! Areas where help is needed:
 
-- **PDF Barcode Generation**: Improving compliance with eCH-0270 specification
+- **PDF Barcode Generation**: Change the PDF comply with the cantonal tax systems:
+- ![error-zh-tax](./docs/error-zh-tax.png)
 - **Additional Cantons**: Testing with other cantonal tax systems
 - **Documentation**: Improving setup guides and examples
 - **Testing**: More unit tests and edge case coverage
