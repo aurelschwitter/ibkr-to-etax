@@ -45,7 +45,10 @@ namespace IbkrToEtax
             _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder
-                    .AddConsole()
+                    .AddSimpleConsole(options => 
+                    {
+                        options.SingleLine = true;
+                    })
                     .SetMinimumLevel(LogLevel.Information);
             });
             _logger = _loggerFactory.CreateLogger<Program>();
