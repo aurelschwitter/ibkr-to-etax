@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
 {
@@ -142,17 +143,17 @@ namespace IbkrToEtax
             );
         }
 
-        public static void SaveAndDisplayOutput(EchTaxStatement statement, string outputXmlPath, string outputPdfPath)
+        public static void SaveAndDisplayOutput(ILogger logger, EchTaxStatement statement, string outputXmlPath, string outputPdfPath)
         {
             var echXml = GenerateEchXml(statement);
             echXml.Save(outputXmlPath);
 
             var depot = statement.Depots.First();
             Console.WriteLine();
-            Console.WriteLine($"✓ Generated eCH-0196 tax statement: {outputXmlPath}");
-            Console.WriteLine($"  - {depot.Securities.Count} securities");
-            Console.WriteLine($"  - {depot.Securities.Sum(s => s.Stocks.Count)} stock mutations");
-            Console.WriteLine($"  - {depot.Securities.Sum(s => s.Payments.Count)} dividend payments");
+            logger?.LogInformation("✓ Generated eCH-0196 tax statement: {OutputXmlPath}", outputXmlPath);
+            logger?.LogInformation("  - {SecurityCount} securities", depot.Securities.Count);
+            logger?.LogInformation("  - {StockCount} stock mutations", depot.Securities.Sum(s => s.Stocks.Count));
+            logger?.LogInformation("  - {PaymentCount} dividend payments", depot.Securities.Sum(s => s.Payments.Count));
 
             // Generate PDF with barcodes
             try
@@ -161,7 +162,7 @@ namespace IbkrToEtax
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Could not generate PDF with barcodes: {ex.Message}");
+                logger?.LogWarning(ex, "Could not generate PDF with barcodes");
             }
         }
     }

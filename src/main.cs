@@ -2,11 +2,15 @@ using System;
 using System.Linq;
 using System.Xml.Linq;
 using CommandLine;
+using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
 {
     class Program
     {
+        private static ILoggerFactory? _loggerFactory;
+        private static ILogger<Program>? _logger;
+
         // Command-line option classes
         [Verb("convert", HelpText = "Convert IBKR XML export to eCH-0196 format (XML + PDF)")]
         class ConvertOptions
@@ -37,20 +41,34 @@ namespace IbkrToEtax
 
         static int Main(string[] args)
         {
+            // Configure logging
+            _loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder
+                    .AddConsole()
+                    .SetMinimumLevel(LogLevel.Information);
+            });
+            _logger = _loggerFactory.CreateLogger<Program>();
+
             // Parse with CommandLineParser
-            return Parser.Default.ParseArguments<ConvertOptions, ValidateOptions, GenPdfOptions>(args)
+            int result = Parser.Default.ParseArguments<ConvertOptions, ValidateOptions, GenPdfOptions>(args)
                 .MapResult(
                     (ConvertOptions opts) => RunConvert(opts),
                     (ValidateOptions opts) => RunValidate(opts),
                     (GenPdfOptions opts) => RunGenPdf(opts),
                     errs => 1);
+
+            // Dispose logger factory
+            _loggerFactory?.Dispose();
+            
+            return result;
         }
 
         static int RunConvert(ConvertOptions opts)
         {
             if (!File.Exists(opts.InputFile))
             {
-                Console.WriteLine($"Error: File not found: {opts.InputFile}");
+                _logger.LogError("File not found: {FilePath}", opts.InputFile);
                 return 2;
             }
             return ConvertIbkrToEch(opts.InputFile, opts.InputFile.Replace(".xml", ".output.xml"), opts.InputFile.Replace(".xml", ".output.pdf"));
@@ -60,7 +78,7 @@ namespace IbkrToEtax
         {
             if (!File.Exists(opts.InputFile))
             {
-                Console.WriteLine($"Error: File not found: {opts.InputFile}");
+                _logger.LogError("File not found: {FilePath}", opts.InputFile);
                 return 2;
             }
             return ValidateEchPdf(opts.InputFile, opts.SchemaFile);
@@ -70,7 +88,7 @@ namespace IbkrToEtax
         {
             if (!File.Exists(opts.XmlFile))
             {
-                Console.WriteLine($"Error: XML file not found: {opts.XmlFile}");
+                _logger.LogError("XML file not found: {FilePath}", opts.XmlFile);
                 return 2;
             }
 
@@ -78,45 +96,47 @@ namespace IbkrToEtax
 
             try
             {
-                Console.WriteLine("=== PDF Generation (Debug Mode) ===");
+                _logger.LogInformation("=== PDF Generation (Debug Mode) ===");
                 Console.WriteLine();
-                Console.WriteLine($"Input XML: {opts.XmlFile}");
-                Console.WriteLine($"Output PDF: {outputPdf}");
+                _logger.LogInformation("Input XML: {XmlFile}", opts.XmlFile);
+                _logger.LogInformation("Output PDF: {OutputPdf}", outputPdf);
                 Console.WriteLine();
 
                 PdfBarcodeGenerator.GeneratePdfWithBarcodes(opts.XmlFile, outputPdf);
 
                 Console.WriteLine();
-                Console.WriteLine("✓ PDF generated successfully");
+                _logger.LogInformation("✓ PDF generated successfully");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error generating PDF: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                _logger.LogError(ex, "Error generating PDF");
                 return 3;
             }
         }
 
         static int ConvertIbkrToEch(string inputFilePath, string outputXmlPath, string outputPdfPath)
         {
-            Console.WriteLine("=== IBKR to eCH-0196 Converter ===");
+            _logger.LogInformation("=== IBKR to eCH-0196 Converter ===");
             Console.WriteLine();
 
             if (!File.Exists(inputFilePath))
             {
-                Console.WriteLine($"Error: File not found: {inputFilePath}");
+                _logger.LogError("File not found: {FilePath}", inputFilePath);
                 return 2;
             }
 
             try
             {
-                Console.WriteLine($"Loading {inputFilePath}...");
+                _logger.LogInformation("Loading {FilePath}...", inputFilePath);
                 var doc = XDocument.Load(inputFilePath);
 
                 // Extract account ID from XML
                 var accountInfo = doc.Descendants("AccountInformation").FirstOrDefault();
                 string accountId = accountInfo?.Attribute("accountId")?.Value ?? "";
+
+                // Extract base currency
+                string baseCurrency = accountInfo?.Attribute("currency")?.Value ?? "";
 
                 // Extract canton from state attribute (format: "CH-ZH")
                 string state = accountInfo?.Attribute("state")?.Value ?? "";
@@ -129,8 +149,22 @@ namespace IbkrToEtax
                 // check that there is a account id in the xml
                 if (string.IsNullOrEmpty(accountId))
                 {
-                    Console.WriteLine("Error: Account ID not found in XML.");
+                    _logger.LogError("Account ID not found in XML");
                     return 4;
+                }
+
+                // Validate that base currency is CHF
+                if (string.IsNullOrEmpty(baseCurrency))
+                {
+                    _logger.LogError("Base currency not found in account information");
+                    return 5;
+                }
+
+                if (baseCurrency != "CHF")
+                {
+                    _logger.LogError("Base currency must be CHF. Current base currency is {BaseCurrency}", baseCurrency);
+                    _logger.LogInformation("Please ensure your IBKR account is configured with CHF as the base currency");
+                    return 6;
                 }
 
                 // Extract date range from FlexStatements
@@ -139,36 +173,38 @@ namespace IbkrToEtax
 
                 // Parse and display IBKR data
                 var (openPositions, trades, dividends, withholdingTax) = IbkrDataParser.ParseIbkrData(doc, accountId);
-                IbkrDataParser.PrintDataLoadSummary(openPositions, trades, dividends, withholdingTax, accountInfo);
+                IbkrDataParser.PrintDataLoadSummary(_logger, openPositions, trades, dividends, withholdingTax, accountInfo);
 
                 // Build eCH tax statement
                 var echStatement = EchStatementBuilder.BuildEchTaxStatement(doc, openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo, canton);
 
                 // Display financial summary
-                FinancialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);
+                var summaryLogger = _loggerFactory!.CreateLogger<FinancialSummaryPrinter>();
+                var financialSummaryPrinter = new FinancialSummaryPrinter(summaryLogger);
+                financialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);
 
                 // Generate output
-                EchXmlGenerator.SaveAndDisplayOutput(echStatement, outputXmlPath, outputPdfPath);
+                EchXmlGenerator.SaveAndDisplayOutput(_logger, echStatement, outputXmlPath, outputPdfPath);
 
                 Console.WriteLine();
-                Console.WriteLine("✓ Conversion completed successfully");
+                _logger.LogInformation("✓ Conversion completed successfully");
                 return 0;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                _logger.LogError(ex, "Error during conversion");
                 return 3;
             }
         }
 
         static int ValidateEchPdf(string pdfPath, string? xsdPath)
         {
-            Console.WriteLine("=== eCH-0196 PDF Validator ===");
+            _logger.LogInformation("=== eCH-0196 PDF Validator ===");
             Console.WriteLine();
 
             if (!File.Exists(pdfPath))
             {
-                Console.WriteLine($"Error: File not found: {pdfPath}");
+                _logger.LogError("File not found: {FilePath}", pdfPath);
                 return 2;
             }
 
@@ -195,18 +231,18 @@ namespace IbkrToEtax
                 var result = PdfValidator.ValidatePdf(pdfPath, xsdPath);
 
                 Console.WriteLine();
-                Console.WriteLine("=== Validation Summary ===");
-                Console.WriteLine($"PDF: {Path.GetFileName(pdfPath)}");
-                Console.WriteLine($"Status: {(result.IsValid ? "✓ VALID" : "✗ INVALID")}");
+                _logger.LogInformation("=== Validation Summary ===");
+                _logger.LogInformation("PDF: {PdfFileName}", Path.GetFileName(pdfPath));
+                _logger.LogInformation("Status: {Status}", result.IsValid ? "✓ VALID" : "✗ INVALID");
                 Console.WriteLine();
 
                 // Display metadata
                 if (result.Metadata.Count > 0)
                 {
-                    Console.WriteLine("Metadata:");
+                    _logger.LogInformation("Metadata:");
                     foreach (var kvp in result.Metadata)
                     {
-                        Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+                        _logger.LogInformation("  {Key}: {Value}", kvp.Key, kvp.Value);
                     }
                     Console.WriteLine();
                 }
@@ -214,10 +250,10 @@ namespace IbkrToEtax
                 // Display errors
                 if (result.Errors.Count > 0)
                 {
-                    Console.WriteLine($"Errors ({result.Errors.Count}):");
+                    _logger.LogError("Errors ({ErrorCount}):", result.Errors.Count);
                     foreach (var error in result.Errors)
                     {
-                        Console.WriteLine($"  ✗ {error}");
+                        _logger.LogError("  ✗ {Error}", error);
                     }
                     Console.WriteLine();
                 }
@@ -225,10 +261,10 @@ namespace IbkrToEtax
                 // Display warnings
                 if (result.Warnings.Count > 0)
                 {
-                    Console.WriteLine($"Warnings ({result.Warnings.Count}):");
+                    _logger.LogWarning("Warnings ({WarningCount}):", result.Warnings.Count);
                     foreach (var warning in result.Warnings)
                     {
-                        Console.WriteLine($"  ⚠ {warning}");
+                        _logger.LogWarning("  ⚠ {Warning}", warning);
                     }
                     Console.WriteLine();
                 }
@@ -236,7 +272,7 @@ namespace IbkrToEtax
                 // Display extracted XML summary
                 if (!string.IsNullOrEmpty(result.ExtractedXml))
                 {
-                    Console.WriteLine("Extracted XML Summary:");
+                    _logger.LogInformation("Extracted XML Summary:");
 
                     try
                     {
@@ -256,43 +292,43 @@ namespace IbkrToEtax
                             var totalGrossRevenueB = root.Attribute("totalGrossRevenueB")?.Value;
                             var totalWithHoldingTaxClaim = root.Attribute("totalWithHoldingTaxClaim")?.Value;
 
-                            Console.WriteLine($"  Tax Period: {taxPeriod}");
-                            Console.WriteLine($"  Period: {periodFrom} to {periodTo}");
-                            Console.WriteLine($"  Canton: {canton}");
-                            Console.WriteLine($"  Total Tax Value: {totalTaxValue} CHF");
-                            Console.WriteLine($"  Total Gross Revenue: {totalGrossRevenueB} CHF");
-                            Console.WriteLine($"  Total Withholding Tax Claim: {totalWithHoldingTaxClaim} CHF");
+                            _logger.LogInformation("  Tax Period: {TaxPeriod}", taxPeriod);
+                            _logger.LogInformation("  Period: {PeriodFrom} to {PeriodTo}", periodFrom, periodTo);
+                            _logger.LogInformation("  Canton: {Canton}", canton);
+                            _logger.LogInformation("  Total Tax Value: {TotalTaxValue} CHF", totalTaxValue);
+                            _logger.LogInformation("  Total Gross Revenue: {TotalGrossRevenue} CHF", totalGrossRevenueB);
+                            _logger.LogInformation("  Total Withholding Tax Claim: {TotalWithHoldingTaxClaim} CHF", totalWithHoldingTaxClaim);
 
                             // Count securities
                             var securities = xmlDoc.Descendants(ns + "security").Count();
                             var payments = xmlDoc.Descendants(ns + "payment").Count();
                             var stocks = xmlDoc.Descendants(ns + "stock").Count();
 
-                            Console.WriteLine($"  Securities: {securities}");
-                            Console.WriteLine($"  Payments: {payments}");
-                            Console.WriteLine($"  Stock Mutations: {stocks}");
+                            _logger.LogInformation("  Securities: {Securities}", securities);
+                            _logger.LogInformation("  Payments: {Payments}", payments);
+                            _logger.LogInformation("  Stock Mutations: {Stocks}", stocks);
                         }
                     }
                     catch
                     {
-                        Console.WriteLine($"  XML Length: {result.ExtractedXml.Length} characters");
+                        _logger.LogInformation("  XML Length: {XmlLength} characters", result.ExtractedXml.Length);
                     }
 
                     // Optionally save the extracted XML
                     string extractedXmlPath = pdfPath.Replace(".pdf", "-extracted.xml");
                     File.WriteAllText(extractedXmlPath, result.ExtractedXml);
                     Console.WriteLine();
-                    Console.WriteLine($"✓ Extracted XML saved to: {extractedXmlPath}");
+                    _logger.LogInformation("✓ Extracted XML saved to: {ExtractedXmlPath}", extractedXmlPath);
                 }
 
                 Console.WriteLine();
-                Console.WriteLine("=========================");
+                _logger.LogInformation("=========================");
 
                 return result.IsValid ? 0 : 3;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                _logger.LogError(ex, "Error during validation");
                 return 3;
             }
         }

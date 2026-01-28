@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
 {
@@ -42,10 +43,16 @@ namespace IbkrToEtax
             };
         }
 
-        public static decimal ConvertToCHF(XElement transaction)
+        public static decimal ConvertToCHF(XElement transaction, ILogger? logger = null)
         {
             decimal amount = ParseDecimal((string?)transaction.Attribute("amount"));
             decimal fxRate = ParseDecimal((string?)transaction.Attribute("fxRateToBase"));
+
+            if (fxRate == 0)
+            {
+                logger?.LogWarning("FX rate is zero, cannot convert to CHF");
+            }
+
             return amount * fxRate;
         }
 

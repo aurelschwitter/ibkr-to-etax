@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
 {
@@ -58,18 +59,18 @@ namespace IbkrToEtax
             return (fromDate, toDate, toDate.Year);
         }
 
-        public static void PrintDataLoadSummary(List<XElement> openPositions, List<XElement> trades,
+        public static void PrintDataLoadSummary(ILogger logger, List<XElement> openPositions, List<XElement> trades,
                                          List<XElement> dividends, List<XElement> withholdingTax,
                                          XElement? accountInfo)
         {
-            Console.WriteLine($"Loaded IBKR data: {openPositions.Count} positions, {trades.Count} trades, " +
-                            $"{dividends.Count} dividends, {withholdingTax.Count} withholding tax entries");
+            logger?.LogInformation("Loaded IBKR data: {PositionCount} positions, {TradeCount} trades, {DividendCount} dividends, {WithholdingTaxCount} withholding tax entries",
+                openPositions.Count, trades.Count, dividends.Count, withholdingTax.Count);
 
             if (accountInfo != null)
             {
                 string accountId = (string?)accountInfo.Attribute("accountId") ?? "Unknown";
                 string accountName = (string?)accountInfo.Attribute("name") ?? "Unknown";
-                Console.WriteLine($"Account: {accountId} - {accountName}");
+                logger?.LogInformation("Account: {AccountId} - {AccountName}", accountId, accountName);
             }
         }
     }

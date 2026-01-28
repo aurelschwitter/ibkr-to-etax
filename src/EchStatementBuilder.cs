@@ -174,7 +174,7 @@ namespace IbkrToEtax
                 // Skip reversals
                 if (netAmount <= 0) continue;
 
-                decimal netAmountCHF = DataHelper.ConvertToCHF(dividend);
+                decimal netAmountCHF = DataHelper.ConvertToCHF(dividend, null);
                 decimal taxAmountCHF = FindMatchingWithholdingTax(symbol, settleDate, actionID, withholdingTax);
                 decimal grossAmountCHF = netAmountCHF + taxAmountCHF;
 
@@ -214,7 +214,7 @@ namespace IbkrToEtax
                 (string?)wt.Attribute("settleDate") == settleDate &&
                 (string?)wt.Attribute("actionID") == actionID);
 
-            return Math.Abs(taxTransactions.Sum(wt => DataHelper.ConvertToCHF(wt)));
+            return Math.Abs(taxTransactions.Sum(wt => DataHelper.ConvertToCHF(wt, null)));
         }
     }
 }
