@@ -18,11 +18,11 @@ namespace IbkrToEtax
             XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
 
             // Calculate totals (individual values remain unrounded, only totals are rounded per eCH-0196)
-            decimal totalTaxValue = statement.Depots.Sum(d => d.Securities.Sum(s => s.TaxValue?.Value ?? 0));
-            decimal totalGrossRevenueA = statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.GrossRevenueA)));
-            decimal totalGrossRevenueB = statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.GrossRevenueB)));
-            decimal totalWithHoldingTaxClaim = statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.WithHoldingTaxClaim)));
-            decimal totalAdditionalWithHoldingTaxUSA = statement.Depots.Sum(d => d.Securities.Sum(s => s.Payments.Sum(p => p.AdditionalWithHoldingTaxUSA)));
+            string totalTaxValue = DataHelper.FormatTotal(statement.GetTotalTaxValue());
+            string totalGrossRevenueA = DataHelper.FormatTotal(statement.GetTotalGrossRevenueA());
+            string totalGrossRevenueB = DataHelper.FormatTotal(statement.GetTotalGrossRevenueB());
+            string totalWithHoldingTaxClaim = DataHelper.FormatTotal(statement.GetTotalWithHoldingTaxClaim());
+            string totalAdditionalWithHoldingTaxUSA = DataHelper.FormatTotal(statement.GetTotalAdditionalWithHoldingTaxUSA());
 
             var root = new XElement(ech0196 + "taxStatement",
                 // Namespace declarations
@@ -42,12 +42,12 @@ namespace IbkrToEtax
                 new XAttribute("periodTo", statement.PeriodTo.ToString("yyyy-MM-dd")),
                 new XAttribute("country", "CH"),
                 new XAttribute("canton", statement.Canton),
-                new XAttribute("totalTaxValue", DataHelper.FormatTotal(totalTaxValue)),
-                new XAttribute("totalGrossRevenueA", DataHelper.FormatTotal(totalGrossRevenueA)),
-                new XAttribute("totalGrossRevenueB", DataHelper.FormatTotal(totalGrossRevenueB)),
-                new XAttribute("totalGrossRevenueBCanton", DataHelper.FormatTotal(totalGrossRevenueB)),
-                new XAttribute("totalGrossRevenueACanton", DataHelper.FormatTotal(totalGrossRevenueA)),
-                new XAttribute("totalWithHoldingTaxClaim", DataHelper.FormatTotal(totalWithHoldingTaxClaim)),
+                new XAttribute("totalTaxValue", totalTaxValue),
+                new XAttribute("totalGrossRevenueA", totalGrossRevenueA),
+                new XAttribute("totalGrossRevenueB", totalGrossRevenueB),
+                new XAttribute("totalGrossRevenueBCanton", totalGrossRevenueB),
+                new XAttribute("totalGrossRevenueACanton", totalGrossRevenueA),
+                new XAttribute("totalWithHoldingTaxClaim", totalWithHoldingTaxClaim),
                 new XAttribute("minorVersion", "21"),
 
                 new XElement(ech0196 + "institution",
@@ -69,15 +69,15 @@ namespace IbkrToEtax
 
                 new XElement(ech0196 + "listOfSecurities",
                     new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
-                    new XAttribute("totalTaxValue", DataHelper.FormatTotal(totalTaxValue)),
-                    new XAttribute("totalGrossRevenueA", DataHelper.FormatTotal(totalGrossRevenueA)),
-                    new XAttribute("totalGrossRevenueB", DataHelper.FormatTotal(totalGrossRevenueB)),
-                    new XAttribute("totalGrossRevenueBCanton", DataHelper.FormatTotal(totalGrossRevenueB)),
-                    new XAttribute("totalGrossRevenueACanton", DataHelper.FormatTotal(totalGrossRevenueA)),
-                    new XAttribute("totalWithHoldingTaxClaim", DataHelper.FormatTotal(totalWithHoldingTaxClaim)),
+                    new XAttribute("totalTaxValue", totalTaxValue),
+                    new XAttribute("totalGrossRevenueA", totalGrossRevenueA),
+                    new XAttribute("totalGrossRevenueB", totalGrossRevenueB),
+                    new XAttribute("totalGrossRevenueBCanton", totalGrossRevenueB),
+                    new XAttribute("totalGrossRevenueACanton", totalGrossRevenueA),
+                    new XAttribute("totalWithHoldingTaxClaim", totalWithHoldingTaxClaim),
                     new XAttribute("totalLumpSumTaxCredit", "0.00"),
                     new XAttribute("totalNonRecoverableTax", "0.00"),
-                    new XAttribute("totalAdditionalWithHoldingTaxUSA", DataHelper.FormatTotal(totalAdditionalWithHoldingTaxUSA)),
+                    new XAttribute("totalAdditionalWithHoldingTaxUSA", totalAdditionalWithHoldingTaxUSA),
                     new XAttribute("totalGrossRevenueIUP", "0.00"),
                     new XAttribute("totalGrossRevenueConversion", "0.00"),
 

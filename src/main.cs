@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Xml.Linq;
 using CommandLine;
+using IbkrToEtax.IbkrReport;
 using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
@@ -45,7 +46,7 @@ namespace IbkrToEtax
             _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder
-                    .AddSimpleConsole(options => 
+                    .AddSimpleConsole(options =>
                     {
                         options.SingleLine = true;
                     })
@@ -63,7 +64,7 @@ namespace IbkrToEtax
 
             // Dispose logger factory
             _loggerFactory?.Dispose();
-            
+
             return result;
         }
 
@@ -71,7 +72,7 @@ namespace IbkrToEtax
         {
             if (!File.Exists(opts.InputFile))
             {
-                _logger.LogError("File not found: {FilePath}", opts.InputFile);
+                _logger!.LogError("File not found: {FilePath}", opts.InputFile);
                 return 2;
             }
             return ConvertIbkrToEch(opts.InputFile, opts.InputFile.Replace(".xml", ".output.xml"), opts.InputFile.Replace(".xml", ".output.pdf"));
@@ -81,7 +82,7 @@ namespace IbkrToEtax
         {
             if (!File.Exists(opts.InputFile))
             {
-                _logger.LogError("File not found: {FilePath}", opts.InputFile);
+                _logger!.LogError("File not found: {FilePath}", opts.InputFile);
                 return 2;
             }
             return ValidateEchPdf(opts.InputFile, opts.SchemaFile);
@@ -91,7 +92,7 @@ namespace IbkrToEtax
         {
             if (!File.Exists(opts.XmlFile))
             {
-                _logger.LogError("XML file not found: {FilePath}", opts.XmlFile);
+                _logger!.LogError("XML file not found: {FilePath}", opts.XmlFile);
                 return 2;
             }
 
@@ -99,115 +100,77 @@ namespace IbkrToEtax
 
             try
             {
-                _logger.LogInformation("=== PDF Generation (Debug Mode) ===");
+                _logger!.LogInformation("=== PDF Generation (Debug Mode) ===");
                 Console.WriteLine();
-                _logger.LogInformation("Input XML: {XmlFile}", opts.XmlFile);
-                _logger.LogInformation("Output PDF: {OutputPdf}", outputPdf);
+                _logger!.LogInformation("Input XML: {XmlFile}", opts.XmlFile);
+                _logger!.LogInformation("Output PDF: {OutputPdf}", outputPdf);
                 Console.WriteLine();
 
                 PdfBarcodeGenerator.GeneratePdfWithBarcodes(opts.XmlFile, outputPdf);
 
                 Console.WriteLine();
-                _logger.LogInformation("✓ PDF generated successfully");
+                _logger!.LogInformation("✓ PDF generated successfully");
                 return 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating PDF");
+                _logger!.LogError(ex, "Error generating PDF");
                 return 3;
             }
         }
 
         static int ConvertIbkrToEch(string inputFilePath, string outputXmlPath, string outputPdfPath)
         {
-            _logger.LogInformation("=== IBKR to eCH-0196 Converter ===");
+            _logger!.LogInformation("=== IBKR to eCH-0196 Converter ===");
             Console.WriteLine();
 
             if (!File.Exists(inputFilePath))
             {
-                _logger.LogError("File not found: {FilePath}", inputFilePath);
+                _logger!.LogError("File not found: {FilePath}", inputFilePath);
                 return 2;
             }
 
             try
             {
-                _logger.LogInformation("Loading {FilePath}...", inputFilePath);
+                _logger!.LogInformation("Loading {FilePath}...", inputFilePath);
                 var doc = XDocument.Load(inputFilePath);
 
-                // Extract account ID from XML
-                var accountInfo = doc.Descendants("AccountInformation").FirstOrDefault();
-                string accountId = accountInfo?.Attribute("accountId")?.Value ?? "";
+                // Extract data from IBKR XML
+                var ibkrReport = new IbkrFlexReport(doc, _loggerFactory!);
 
-                // Extract base currency
-                string baseCurrency = accountInfo?.Attribute("currency")?.Value ?? "";
-
-                // Extract canton from state attribute (format: "CH-ZH")
-                string state = accountInfo?.Attribute("state")?.Value ?? "";
-                string canton = "ZH"; // Default canton
-                if (!string.IsNullOrEmpty(state) && state.StartsWith("CH-"))
-                {
-                    canton = state[3..]; // Extract "ZH" from "CH-ZH"
-                }
-
-                // check that there is a account id in the xml
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogError("Account ID not found in XML");
-                    return 4;
-                }
-
-                // Validate that base currency is CHF
-                if (string.IsNullOrEmpty(baseCurrency))
-                {
-                    _logger.LogError("Base currency not found in account information");
-                    return 5;
-                }
-
-                if (baseCurrency != "CHF")
-                {
-                    _logger.LogError("Base currency must be CHF. Current base currency is {BaseCurrency}", baseCurrency);
-                    _logger.LogInformation("Please ensure your IBKR account is configured with CHF as the base currency");
-                    return 6;
-                }
-
-                // Extract date range from FlexStatements
-                var flexStatements = doc.Descendants("FlexStatement").ToList();
-                var (periodFrom, periodTo, taxYear) = IbkrDataParser.ExtractDateRange(flexStatements);
-
-                // Parse and display IBKR data
-                var (openPositions, trades, dividends, withholdingTax) = IbkrDataParser.ParseIbkrData(doc, accountId);
-                IbkrDataParser.PrintDataLoadSummary(_logger, openPositions, trades, dividends, withholdingTax, accountInfo);
+                // display suimmary of loaded data
+                ibkrReport.PrintDataLoadSummary();
 
                 // Build eCH tax statement
-                var echStatement = EchStatementBuilder.BuildEchTaxStatement(doc, openPositions, trades, dividends, withholdingTax, accountId, taxYear, periodFrom, periodTo, canton);
+                var echStatement = new EchStatementBuilder(ibkrReport, _loggerFactory!).BuildEchTaxStatement();
 
                 // Display financial summary
                 var summaryLogger = _loggerFactory!.CreateLogger<FinancialSummaryPrinter>();
                 var financialSummaryPrinter = new FinancialSummaryPrinter(summaryLogger);
-                financialSummaryPrinter.PrintFinancialSummary(doc, dividends, withholdingTax, trades, accountId);
+                financialSummaryPrinter.PrintFinancialSummary(ibkrReport);
 
                 // Generate output
-                EchXmlGenerator.SaveAndDisplayOutput(_logger, echStatement, outputXmlPath, outputPdfPath);
+                EchXmlGenerator.SaveAndDisplayOutput(_logger!, echStatement, outputXmlPath, outputPdfPath);
 
                 Console.WriteLine();
-                _logger.LogInformation("✓ Conversion completed successfully");
+                _logger!.LogInformation("✓ Conversion completed successfully");
                 return 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during conversion");
+                _logger!.LogError(ex, "Error during conversion");
                 return 3;
             }
         }
 
         static int ValidateEchPdf(string pdfPath, string? xsdPath)
         {
-            _logger.LogInformation("=== eCH-0196 PDF Validator ===");
+            _logger!.LogInformation("=== eCH-0196 PDF Validator ===");
             Console.WriteLine();
 
             if (!File.Exists(pdfPath))
             {
-                _logger.LogError("File not found: {FilePath}", pdfPath);
+                _logger!.LogError("File not found: {FilePath}", pdfPath);
                 return 2;
             }
 
@@ -234,18 +197,18 @@ namespace IbkrToEtax
                 var result = PdfValidator.ValidatePdf(pdfPath, xsdPath);
 
                 Console.WriteLine();
-                _logger.LogInformation("=== Validation Summary ===");
-                _logger.LogInformation("PDF: {PdfFileName}", Path.GetFileName(pdfPath));
-                _logger.LogInformation("Status: {Status}", result.IsValid ? "✓ VALID" : "✗ INVALID");
+                _logger!.LogInformation("=== Validation Summary ===");
+                _logger!.LogInformation("PDF: {PdfFileName}", Path.GetFileName(pdfPath));
+                _logger!.LogInformation("Status: {Status}", result.IsValid ? "✓ VALID" : "✗ INVALID");
                 Console.WriteLine();
 
                 // Display metadata
                 if (result.Metadata.Count > 0)
                 {
-                    _logger.LogInformation("Metadata:");
+                    _logger!.LogInformation("Metadata:");
                     foreach (var kvp in result.Metadata)
                     {
-                        _logger.LogInformation("  {Key}: {Value}", kvp.Key, kvp.Value);
+                        _logger!.LogInformation("  {Key}: {Value}", kvp.Key, kvp.Value);
                     }
                     Console.WriteLine();
                 }
@@ -253,10 +216,10 @@ namespace IbkrToEtax
                 // Display errors
                 if (result.Errors.Count > 0)
                 {
-                    _logger.LogError("Errors ({ErrorCount}):", result.Errors.Count);
+                    _logger!.LogError("Errors ({ErrorCount}):", result.Errors.Count);
                     foreach (var error in result.Errors)
                     {
-                        _logger.LogError("  ✗ {Error}", error);
+                        _logger!.LogError("  ✗ {Error}", error);
                     }
                     Console.WriteLine();
                 }
@@ -264,10 +227,10 @@ namespace IbkrToEtax
                 // Display warnings
                 if (result.Warnings.Count > 0)
                 {
-                    _logger.LogWarning("Warnings ({WarningCount}):", result.Warnings.Count);
+                    _logger!.LogWarning("Warnings ({WarningCount}):", result.Warnings.Count);
                     foreach (var warning in result.Warnings)
                     {
-                        _logger.LogWarning("  ⚠ {Warning}", warning);
+                        _logger!.LogWarning("  ⚠ {Warning}", warning);
                     }
                     Console.WriteLine();
                 }
@@ -275,7 +238,7 @@ namespace IbkrToEtax
                 // Display extracted XML summary
                 if (!string.IsNullOrEmpty(result.ExtractedXml))
                 {
-                    _logger.LogInformation("Extracted XML Summary:");
+                    _logger!.LogInformation("Extracted XML Summary:");
 
                     try
                     {
@@ -295,43 +258,43 @@ namespace IbkrToEtax
                             var totalGrossRevenueB = root.Attribute("totalGrossRevenueB")?.Value;
                             var totalWithHoldingTaxClaim = root.Attribute("totalWithHoldingTaxClaim")?.Value;
 
-                            _logger.LogInformation("  Tax Period: {TaxPeriod}", taxPeriod);
-                            _logger.LogInformation("  Period: {PeriodFrom} to {PeriodTo}", periodFrom, periodTo);
-                            _logger.LogInformation("  Canton: {Canton}", canton);
-                            _logger.LogInformation("  Total Tax Value: {TotalTaxValue} CHF", totalTaxValue);
-                            _logger.LogInformation("  Total Gross Revenue: {TotalGrossRevenue} CHF", totalGrossRevenueB);
-                            _logger.LogInformation("  Total Withholding Tax Claim: {TotalWithHoldingTaxClaim} CHF", totalWithHoldingTaxClaim);
+                            _logger!.LogInformation("  Tax Period: {TaxPeriod}", taxPeriod);
+                            _logger!.LogInformation("  Period: {PeriodFrom} to {PeriodTo}", periodFrom, periodTo);
+                            _logger!.LogInformation("  Canton: {Canton}", canton);
+                            _logger!.LogInformation("  Total Tax Value: {TotalTaxValue} CHF", totalTaxValue);
+                            _logger!.LogInformation("  Total Gross Revenue: {TotalGrossRevenue} CHF", totalGrossRevenueB);
+                            _logger!.LogInformation("  Total Withholding Tax Claim: {TotalWithHoldingTaxClaim} CHF", totalWithHoldingTaxClaim);
 
                             // Count securities
                             var securities = xmlDoc.Descendants(ns + "security").Count();
                             var payments = xmlDoc.Descendants(ns + "payment").Count();
                             var stocks = xmlDoc.Descendants(ns + "stock").Count();
 
-                            _logger.LogInformation("  Securities: {Securities}", securities);
-                            _logger.LogInformation("  Payments: {Payments}", payments);
-                            _logger.LogInformation("  Stock Mutations: {Stocks}", stocks);
+                            _logger!.LogInformation("  Securities: {Securities}", securities);
+                            _logger!.LogInformation("  Payments: {Payments}", payments);
+                            _logger!.LogInformation("  Stock Mutations: {Stocks}", stocks);
                         }
                     }
                     catch
                     {
-                        _logger.LogInformation("  XML Length: {XmlLength} characters", result.ExtractedXml.Length);
+                        _logger!.LogInformation("  XML Length: {XmlLength} characters", result.ExtractedXml.Length);
                     }
 
                     // Optionally save the extracted XML
                     string extractedXmlPath = pdfPath.Replace(".pdf", "-extracted.xml");
                     File.WriteAllText(extractedXmlPath, result.ExtractedXml);
                     Console.WriteLine();
-                    _logger.LogInformation("✓ Extracted XML saved to: {ExtractedXmlPath}", extractedXmlPath);
+                    _logger!.LogInformation("✓ Extracted XML saved to: {ExtractedXmlPath}", extractedXmlPath);
                 }
 
                 Console.WriteLine();
-                _logger.LogInformation("=========================");
+                _logger!.LogInformation("=========================");
 
                 return result.IsValid ? 0 : 3;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during validation");
+                _logger!.LogError(ex, "Error during validation");
                 return 3;
             }
         }

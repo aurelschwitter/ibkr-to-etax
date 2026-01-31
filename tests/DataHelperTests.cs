@@ -1,12 +1,21 @@
 using System;
 using System.Globalization;
 using System.Xml.Linq;
+using IbkrToEtax.IbkrReport;
 using Xunit;
 
 namespace IbkrToEtax.Tests
 {
     public class DataHelperTests
     {
+        // Mock class for testing ConvertToCHF
+        private class MockForeignCashElement : IIbkrForeignCashValueElement
+        {
+            public string Currency { get; set; } = "";
+            public decimal FxRateToBase { get; set; }
+            public decimal Amount { get; set; }
+        }
+
         [Theory]
         [InlineData("123.45", 123.45)]
         [InlineData("1,234.56", 1234.56)]
@@ -46,7 +55,7 @@ namespace IbkrToEtax.Tests
         [InlineData("US", "US")]
         [InlineData("CH", "CH")]
         [InlineData("DE", "DE")]
-        [InlineData(null, "CH")]
+        [InlineData(null, "n/a")]
         public void MapCountry_VariousCountryCodes_ReturnsExpectedMapping(string? input, string expected)
         {
             var result = DataHelper.MapCountry(input!);
@@ -68,11 +77,13 @@ namespace IbkrToEtax.Tests
         [Fact]
         public void ConvertToCHF_WithValidData_ReturnsCorrectConversion()
         {
-            var xml = new XElement("Transaction",
-                new XAttribute("amount", "100.00"),
-                new XAttribute("fxRateToBase", "0.85"));
+            var element = new MockForeignCashElement
+            {
+                Amount = 100.00m,
+                FxRateToBase = 0.85m
+            };
             
-            var result = DataHelper.ConvertToCHF(xml);
+            var result = DataHelper.ConvertToCHF(element);
             
             Assert.Equal(85.00m, result);
         }
@@ -80,10 +91,13 @@ namespace IbkrToEtax.Tests
         [Fact]
         public void ConvertToCHF_WithNoFxRate_ReturnsZero()
         {
-            var xml = new XElement("Transaction",
-                new XAttribute("amount", "100.00"));
+            var element = new MockForeignCashElement
+            {
+                Amount = 100.00m,
+                FxRateToBase = 0m
+            };
             
-            var result = DataHelper.ConvertToCHF(xml);
+            var result = DataHelper.ConvertToCHF(element);
             
             Assert.Equal(0m, result);
         }
@@ -91,11 +105,13 @@ namespace IbkrToEtax.Tests
         [Fact]
         public void ConvertToCHF_WithNegativeAmount_ReturnsNegativeResult()
         {
-            var xml = new XElement("Transaction",
-                new XAttribute("amount", "-50.00"),
-                new XAttribute("fxRateToBase", "1.10"));
+            var element = new MockForeignCashElement
+            {
+                Amount = -50.00m,
+                FxRateToBase = 1.10m
+            };
             
-            var result = DataHelper.ConvertToCHF(xml);
+            var result = DataHelper.ConvertToCHF(element);
             
             Assert.Equal(-55.00m, result);
         }

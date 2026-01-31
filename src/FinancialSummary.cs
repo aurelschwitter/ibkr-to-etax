@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using IbkrToEtax.IbkrReport;
 using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
@@ -43,49 +44,46 @@ namespace IbkrToEtax
             _logger = logger;
         }
 
-        public FinancialSummary Extract(XDocument doc, List<XElement> dividends,
-                                        List<XElement> withholdingTax, List<XElement> trades,
-                                        string accountId)
+        public FinancialSummary Extract(IbkrFlexReport report)
         {
             var summary = new FinancialSummary();
 
             // Extract dividends by currency
-            summary.DividendsByCurrency = ExtractDividendsByCurrency(dividends, withholdingTax);
+            summary.DividendsByCurrency = ExtractDividendsByCurrency(report.DividendList, report.WithholdingTaxList);
 
             // CHF totals
-            summary.TotalDividendsCHF = dividends.Sum(d => DataHelper.ConvertToCHF(d, _logger));
-            summary.TotalTaxCHF = withholdingTax.Sum(wt => Math.Abs(DataHelper.ConvertToCHF(wt, _logger)));
+            summary.TotalDividendsCHF = report.DividendList.Sum(d => DataHelper.ConvertToCHF(d, _logger));
+            summary.TotalTaxCHF = report.WithholdingTaxList.Sum(wt => Math.Abs(DataHelper.ConvertToCHF(wt, _logger)));
 
             // Account values
-            summary.AccountValues = ExtractAccountValues(doc, accountId);
+            summary.AccountValues = ExtractAccountValues(report.EquitySummaryList, report.AccountId);
 
             // Other metrics
-            summary.MarkToMarketPnl = ExtractMarkToMarketPnl(doc);
-            summary.DepositsWithdrawals = ExtractDepositsWithdrawals(doc, accountId);
-            summary.ChangeInDividendAccrual = ExtractDividendAccrualChange(doc, accountId);
-            summary.TotalCommissions = ExtractCommissions(trades, accountId);
-            summary.SalesTax = ExtractSalesTax(doc, accountId);
-            summary.FxTranslations = ExtractFxTranslations(doc);
+            summary.MarkToMarketPnl = ExtractMarkToMarketPnl(report.FifoTransactions);
+            summary.DepositsWithdrawals = ExtractDepositsWithdrawals(report.DepositWithdrawalList, report.AccountId);
+            summary.ChangeInDividendAccrual = ExtractDividendAccrualChange(report.EquitySummaryList, report.AccountId);
+            summary.TotalCommissions = ExtractCommissions(report.Trades, report.AccountId);
+            summary.FxTranslations = ExtractFxTranslations(report.FifoTransactions);
 
             return summary;
         }
 
-        private List<CurrencySummary> ExtractDividendsByCurrency(List<XElement> dividends, List<XElement> withholdingTax)
+        private List<CurrencySummary> ExtractDividendsByCurrency(List<IbkrCashTransaction> dividends, List<IbkrCashTransaction> withholdingTax)
         {
             var dividendsByCurrency = dividends
-                .GroupBy(d => (string?)d.Attribute("currency") ?? "")
+                .GroupBy(d => d.Currency)
                 .Select(g => new
                 {
                     Currency = g.Key,
-                    TotalDividends = g.Sum(d => DataHelper.ParseDecimal((string?)d.Attribute("amount")))
+                    TotalDividends = g.Sum(d => d.Amount)
                 }).ToList();
 
             var taxByCurrency = withholdingTax
-                .GroupBy(wt => (string?)wt.Attribute("currency") ?? "")
+                .GroupBy(wt => wt.Currency)
                 .Select(g => new
                 {
                     Currency = g.Key,
-                    TotalTax = Math.Abs(g.Sum(wt => DataHelper.ParseDecimal((string?)wt.Attribute("amount"))))
+                    TotalTax = Math.Abs(g.Sum(wt => wt.Amount))
                 }).ToList();
 
             return dividendsByCurrency.Select(curr =>
@@ -100,90 +98,82 @@ namespace IbkrToEtax
             }).ToList();
         }
 
-        private AccountValueSummary? ExtractAccountValues(XDocument doc, string accountId)
+        private AccountValueSummary? ExtractAccountValues(List<IbkrEquitySummary> equitySummaries, string accountId)
         {
-            var equitySummaries = doc.Descendants("EquitySummaryByReportDateInBase")
-                .Where(e => (string?)e.Attribute("accountId") == accountId)
-                .OrderBy(e => (string?)e.Attribute("reportDate") ?? "")
+            var filteredSummaries = equitySummaries
+                .Where(e => e.AccountId == accountId)
+                .OrderBy(e => e.ReportDate)
                 .ToList();
 
-            var startingSummary = equitySummaries.FirstOrDefault();
-            var endingSummary = equitySummaries.LastOrDefault();
-
+            var startingSummary = filteredSummaries.FirstOrDefault();
+            var endingSummary = filteredSummaries.LastOrDefault();
             if (startingSummary != null && endingSummary != null)
             {
                 return new AccountValueSummary
                 {
-                    StartingValue = DataHelper.ParseDecimal((string?)startingSummary.Attribute("total")),
-                    EndingValue = DataHelper.ParseDecimal((string?)endingSummary.Attribute("total"))
+                    StartingValue = startingSummary.Total,
+                    EndingValue = endingSummary.Total
                 };
             }
 
             return null;
         }
 
-        private decimal ExtractMarkToMarketPnl(XDocument doc)
+        private decimal ExtractMarkToMarketPnl(List<IbkrFifoPerformanceSummary> fifoPerformanceSummaries)
         {
-            var perfSummary = doc.Descendants("FIFOPerformanceSummaryUnderlying")
-                .FirstOrDefault(p => (string?)p.Attribute("description") == "Total (All Assets)");
-            
-            return perfSummary != null 
-                ? DataHelper.ParseDecimal((string?)perfSummary.Attribute("totalUnrealizedPnl"))
+            var perfSummary = fifoPerformanceSummaries
+                .FirstOrDefault(p => p.Description == "Total (All Assets)");
+
+            return perfSummary != null
+                ? perfSummary.TotalUnrealizedPnl
                 : 0;
         }
 
-        private decimal ExtractDepositsWithdrawals(XDocument doc, string accountId)
+        private decimal ExtractDepositsWithdrawals(List<IbkrCashTransaction> cashTransactions, string accountId)
         {
-            return doc.Descendants("CashTransaction")
-                .Where(ct => (string?)ct.Attribute("type") == "Deposits/Withdrawals" &&
-                             (string?)ct.Attribute("accountId") == accountId)
-                .Sum(ct => DataHelper.ParseDecimal((string?)ct.Attribute("amount")));
+            return cashTransactions
+                .Where(ct => ct.Type == "Deposits/Withdrawals" &&
+                             ct.AccountId == accountId)
+                .Sum(ct => ct.Amount);
         }
 
-        private decimal ExtractDividendAccrualChange(XDocument doc, string accountId)
+        private decimal ExtractDividendAccrualChange(List<IbkrEquitySummary> equitySummaries, string accountId)
         {
-            var equitySummaries = doc.Descendants("EquitySummaryByReportDateInBase")
-                .Where(e => (string?)e.Attribute("accountId") == accountId)
-                .OrderBy(e => (string?)e.Attribute("reportDate") ?? "")
+            var filteredSummaries = equitySummaries
+                .Where(e => e.AccountId == accountId)
+                .OrderBy(e => e.ReportDate)
                 .ToList();
 
             if (equitySummaries.Count >= 2)
             {
-                decimal startingAccruals = DataHelper.ParseDecimal((string?)equitySummaries.First().Attribute("dividendAccruals"));
-                decimal endingAccruals = DataHelper.ParseDecimal((string?)equitySummaries.Last().Attribute("dividendAccruals"));
+                decimal startingAccruals = equitySummaries.First().DividendAccruals;
+                decimal endingAccruals = equitySummaries.Last().DividendAccruals;
                 return endingAccruals - startingAccruals;
             }
 
             return 0;
         }
 
-        private decimal ExtractCommissions(List<XElement> trades, string accountId)
+        private decimal ExtractCommissions(List<IbkrTrade> trades, string accountId)
         {
             return trades
-                .Where(t => (string?)t.Attribute("accountId") == accountId &&
-                            (string?)t.Attribute("assetCategory") != "CASH")
+                .Where(t => t.AccountId == accountId &&
+                            t.AssetCategory != "CASH")
                 .Sum(t =>
                 {
-                    decimal ibComm = DataHelper.ParseDecimal((string?)t.Attribute("ibCommission"));
-                    decimal fx = DataHelper.ParseDecimal((string?)t.Attribute("fxRateToBase"));
+                    decimal ibComm = t.IbCommission;
+                    decimal fx = t.FxRateToBase;
                     return Math.Abs(ibComm * fx);
                 });
         }
 
-        private decimal ExtractSalesTax(XDocument doc, string accountId)
+        private decimal ExtractFxTranslations(List<IbkrFifoPerformanceSummary> fifoPerformanceSummaries)
         {
-            return doc.Descendants("TransactionTax")
-                .Where(tt => (string?)tt.Attribute("accountId") == accountId)
-                .Sum(tt => DataHelper.ParseDecimal((string?)tt.Attribute("taxInBase")));
-        }
+            var perfSummary = fifoPerformanceSummaries
+                .FirstOrDefault(p => p.Description == "Total (All Assets)");
 
-        private decimal ExtractFxTranslations(XDocument doc)
-        {
-            var perfSummary = doc.Descendants("FIFOPerformanceSummaryUnderlying")
-                .FirstOrDefault(p => (string?)p.Attribute("description") == "Total (All Assets)");
-            
             return perfSummary != null
-                ? DataHelper.ParseDecimal((string?)perfSummary.Attribute("totalFxPnl"))
+                ? perfSummary.TotalFxPnl
                 : 0;
         }
     }

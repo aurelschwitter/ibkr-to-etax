@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using IbkrToEtax.IbkrReport;
 using Microsoft.Extensions.Logging;
 
 namespace IbkrToEtax
@@ -11,11 +12,9 @@ namespace IbkrToEtax
         private readonly ILogger<FinancialSummaryPrinter> _logger = logger;
         private readonly FinancialSummaryExtractor _extractor = new(logger);
 
-        public void PrintFinancialSummary(XDocument doc, List<XElement> dividends,
-                                          List<XElement> withholdingTax, List<XElement> trades,
-                                          string accountId)
+        public void PrintFinancialSummary(IbkrFlexReport report)
         {
-            var summary = _extractor.Extract(doc, dividends, withholdingTax, trades, accountId);
+            var summary = _extractor.Extract(report);
 
             Console.WriteLine();
             _logger.LogInformation("=== FINANCIAL SUMMARY ===");
