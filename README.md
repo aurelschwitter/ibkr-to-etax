@@ -157,7 +157,7 @@ Configure **Delivery Configuration**:
 | Parameter     | Value                                 |
 | ------------- | ------------------------------------- |
 | **Period**    | Custom Date Range                     |
-| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-2024) |
+| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-01)   |
 | **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31)   |
 | **Format**    | XML                                   |
 
