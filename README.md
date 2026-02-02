@@ -16,6 +16,7 @@ Simplify your Swiss tax declaration by automatically converting Interactive Brok
 ## ⚠️ Important Disclaimer
 
 **This tool is provided "as-is" without warranty of any kind.** You are solely responsible for:
+
 - Verifying all generated data against official IBKR statements
 - Ensuring accuracy of your tax declaration
 - Complying with Swiss tax regulations
@@ -25,6 +26,7 @@ Always cross-check the output before submitting to tax authorities.
 ## ✨ Features
 
 ### 🔄 IBKR to eCH-0196 Conversion
+
 - ✅ Parses IBKR FlexQuery XML exports automatically
 - ✅ Converts securities positions, trades, dividends, and withholding taxes
 - ✅ Generates eCH-0196-2-2 compliant XML for direct upload
@@ -33,6 +35,7 @@ Always cross-check the output before submitting to tax authorities.
 - ✅ Displays comprehensive financial summary
 
 ### 📊 What Gets Converted
+
 - **Securities positions** with year-end valuations (NAV)
 - **Stock trades** (buy/sell transactions)
 - **Dividend payments** with proper tax allocation
@@ -68,6 +71,7 @@ dotnet run -- convert .\input\YourIBKRExport.xml
 ```
 
 This generates:
+
 - `YourIBKRExport.output.xml` - Upload this to your cantonal tax portal
 - `YourIBKRExport.output.pdf` - PDF with embedded data (experimental)
 
@@ -93,30 +97,46 @@ Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax)
 
 ![Section selection](docs/ibkr-flex-query-sections.png)
 
-| Section                                                 | Configuration                                                                                                        |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **Account Information**                                 | Select All Columns                                                                                                   |
-| **Cash Transactions**                                   | **Types**: Dividends, Withholding Tax, 871(m) Withholding, Broker Fees, Deposits & Withdrawals<br>Select All Columns |
-| **Interest Accruals**                                   | Select All Columns                                                                                                   |
-| **Net Asset Value (NAV) in Base**                       | Select All Columns                                                                                                   |
-| **Open Positions**                                      | Detail Level: **Summary**<br>Select All Columns                                                                      |
-| **Realized and Unrealized Performance Summary in Base** | Select All Columns                                                                                                   |
-| **Trades**                                              | Select All Columns                                                                                                   |
+| Section                                                 | Configuration                                                                                                          |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Account Information**                                 | Select All Columns                                                                                                     |
+| **Cash Transactions**                                   | **Options**: Dividends, Withholding Tax, 871(m) Withholding, Broker Fees, Deposits & Withdrawals<br>Select All Columns |
+| **Interest Accruals**                                   | Select All Columns                                                                                                     |
+| **Net Asset Value (NAV) in Base**                       | Select All Columns                                                                                                     |
+| **Open Positions**                                      | **Options**: Summary<br>Select All Columns                                                                             |
+| **Realized and Unrealized Performance Summary in Base** | Select All Columns                                                                                                     |
+| **Trades**                                              | Select All Columns                                                                                                     |
 
 <details>
 <summary>📸 View detailed screenshots</summary>
 
 **Cash Transactions Configuration:**
+
 ![Cash transactions](docs/ibkr-cash-transactions.png)
 
 **Open Positions Configuration:**
+
 ![Open positions](docs/ibkr-open-positions.png)
 
 </details>
 
 Configure **Delivery Configuration**:
-![Delivery configuration](docs/ibkr-delivery-config.png)
 
+| Option                                            | Value                  |
+| ------------------------------------------------- | ---------------------- |
+| **Models**                                        | Optional               |
+| **Format**                                        | XML                    |
+| **Period**                                        | Last 365 Calendar Days |
+| **Date Format**                                   | yyyy-MM-dd             |
+| **Time Format**                                   | HH:mm:ss               |
+| **Date/Time Separator**                           | ; (semi-colon)         |
+| **Include Canceled Trades?**                      | No                     |
+| **Include Currency Rates?**                       | No                     |
+| **Include Audit Trail Fields?**                   | No                     |
+| **Display Account Alias in Place of Account ID?** | No                     |
+| **Breakout by Day**                               | No                     |
+
+![Delivery configuration](docs/ibkr-delivery-config.png)
 
 ### Step 3: Save the Query
 
@@ -134,12 +154,12 @@ Configure **Delivery Configuration**:
 
 ![Query parameters](docs/ibkr-query-parameters.png)
 
-| Parameter     | Value                                |
-| ------------- | ------------------------------------ |
-| **Period**    | Custom Date Range                    |
-| **From Date** | 01-Jan-{TaxYear} (e.g., 01-Jan-2024) |
-| **To Date**   | 31-Dec-{TaxYear} (e.g., 31-Dec-2024) |
-| **Format**    | XML                                  |
+| Parameter     | Value                                 |
+| ------------- | ------------------------------------- |
+| **Period**    | Custom Date Range                     |
+| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-2024) |
+| **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31)   |
+| **Format**    | XML                                   |
 
 3. Click **Run** and download the generated XML file
 
@@ -153,32 +173,35 @@ dotnet run -- convert .\input\YourFile.xml
 ```
 
 **Output:**
+
 - `YourFile.output.xml` - eCH-0196 compliant XML (ready for upload)
 - `YourFile.output.pdf` - PDF with embedded barcodes (experimental)
 
 ### Functions available for debugging
 
 Generate PDF directly from XML:
+
 ```powershell
 dotnet run -- genpdf .\input\eCH-0196-statement.xml .\output\result.pdf
 ```
 
 Read and Validate Data from existing PDF:
+
 ```powershell
 dotnet run -- validate .\input\SomePDF.pdf
 ```
--> Validates barcode structure, extracts embedded XML, and displays tax statement summary.
 
+-> Validates barcode structure, extracts embedded XML, and displays tax statement summary.
 
 ## 📤 Uploading to Tax System
 
 ### Zurich (ZH) Canton Example
 
 1. Navigate to your tax declaration
-3. Find the securities declaration section
-4. Select "eSteuerauszug importieren"
-5. Upload the generated `.output.xml` file
-6. Verify the imported data matches your IBKR statements
+2. Find the securities declaration section
+3. Select "eSteuerauszug importieren"
+4. Upload the generated `.output.xml` file
+5. Verify the imported data matches your IBKR statements
 
 ✅ **Success!** The system will import your securities, trades, and dividends automatically.
 
@@ -211,14 +234,30 @@ Total Withholding Tax in CHF: 250.12
 ```bash
 src/
 ├── main.cs                     # CLI entry point & command handling
-├── IbkrDataParser.cs           # IBKR FlexQuery XML parser
-├── EchStatementBuilder.cs      # eCH-0196 statement construction
-├── EchXmlGenerator.cs          # eCH-0196 XML serialization
+├── DataHelper.cs               # Currency conversion & formatting utilities
+├── FinancialSummary.cs         # Financial summary data model
 ├── FinancialSummaryPrinter.cs  # Financial reports & summaries
 ├── PdfBarcodeGenerator.cs      # PDF417/CODE128C barcode generation
 ├── PdfValidator.cs             # PDF validation & barcode extraction
-├── DataHelper.cs               # Currency conversion & formatting utilities
-└── Ech*.cs                     # eCH-0196 data model classes
+├── EchReport/                  # eCH-0196 data models & generation
+│   ├── EchPayment.cs           # Payment/dividend data model
+│   ├── EchSecurity.cs          # Security data model
+│   ├── EchSecurityDepot.cs     # Security depot data model
+│   ├── EchStatementBuilder.cs  # eCH-0196 statement construction
+│   ├── EchStock.cs             # Stock mutation data model
+│   ├── EchTaxStatement.cs      # Tax statement data model
+│   ├── EchTaxValue.cs          # Tax value data model
+│   └── EchXmlGenerator.cs      # eCH-0196 XML serialization
+└── IbkrReport/                 # IBKR FlexQuery parsing Data Models
+    ├── IbkrCashTransaction.cs  # Cash transaction data model
+    ├── IbkrEquitySummary.cs    # Equity summary data model
+    ├── IbkrFifoPerformanceSummary.cs  # FIFO performance data model
+    ├── IbkrFlexReport.cs       # FlexQuery XML parser
+    ├── IbkrOpenPosition.cs     # Open position data model
+    ├── IbkrSecurityInfo.cs     # Security info data model
+    ├── IbkrSummaryPerPosition.cs  # Position summary data model
+    ├── IbkrTrade.cs            # Trade data model
+    └── IIbkrForeignCashValueElement.cs  # Foreign cash value interface
 
 schemas/
 └── eCH-0196-2-2.xsd            # eCH-0196 XML schema for validation
@@ -261,7 +300,6 @@ This program is distributed WITHOUT ANY WARRANTY; without even the implied warra
 - **[eCH-0270 Standard](https://www.ech.ch/de/ech/ech-0270)** - PDF417 barcode specifications
 - **[Interactive Brokers](https://www.interactivebrokers.com/)** - IBKR official website
 - **[IBKR FlexQuery Guide](https://www.interactivebrokers.com/en/software/reportguide/reportguide.htm)** - FlexQuery documentation
-
 
 ---
 
