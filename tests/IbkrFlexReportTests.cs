@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Xml.Linq;
 using IbkrToEtax.IbkrReport;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IbkrToEtax.Tests
@@ -17,7 +13,7 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase>
         <EquitySummaryByReportDateInBase accountId=""U12345"" reportDate=""2024-12-31"" cash=""0"" />
       </EquitySummaryInBase>
@@ -32,18 +28,23 @@ namespace IbkrToEtax.Tests
         <Trade accountId=""U12345"" symbol=""GOOG"" />
       </Trades>
       <CashTransactions>
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""100.00"" />
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""50.00"" />
-        <CashTransaction accountId=""U12345"" type=""Withholding Tax"" amount=""-15.00"" />
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""200.00"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""100.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""50.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Withholding Tax"" amount=""-15.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""200.00"" levelOfDetail=""DETAIL"" />
       </CashTransactions>
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""AAPL"" />
+        <SecurityInfo symbol=""MSFT"" />
+        <SecurityInfo symbol=""GOOG"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Equal(2, report.OpenPositions.Count); // Only SUMMARY level
       Assert.Equal(3, report.Trades.Count);
@@ -58,18 +59,21 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase />
       <OpenPositions />
       <Trades />
       <CashTransactions />
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""DUMMY"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Empty(report.OpenPositions);
       Assert.Empty(report.Trades);
@@ -84,18 +88,21 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase />
       <OpenPositions />
       <Trades />
       <CashTransactions />
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""DUMMY"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Equal(new DateTime(2024, 1, 1), report.StartDate);
       Assert.Equal(new DateTime(2024, 12, 31), report.EndDate);
@@ -116,7 +123,7 @@ namespace IbkrToEtax.Tests
 
       Assert.Throws<Exception>(() =>
       {
-        new IbkrFlexReport(doc, new LoggerFactory());
+        new IbkrFlexReport(doc, TestLoggerFactory.Create());
       });
     }
   }

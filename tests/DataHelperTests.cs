@@ -1,6 +1,3 @@
-using System;
-using System.Globalization;
-using System.Xml.Linq;
 using IbkrToEtax.IbkrReport;
 using Xunit;
 

@@ -1,9 +1,5 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Xml.Linq;
 using IbkrToEtax.IbkrReport;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IbkrToEtax.Tests
@@ -18,7 +14,7 @@ namespace IbkrToEtax.Tests
             var doc = XDocument.Load(testDataPath);
 
             // Parse IBKR data
-            var report = new IbkrFlexReport(doc, new LoggerFactory());
+            var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
             Assert.Equal(2, report.OpenPositions.Count);
             Assert.Equal(2, report.Trades.Count);
@@ -32,7 +28,7 @@ namespace IbkrToEtax.Tests
             Assert.Equal(new DateTime(2024, 12, 31), report.EndDate);
 
             // Build eCH tax statement
-            var statement = new EchStatementBuilder(report, new LoggerFactory()).BuildEchTaxStatement();
+            var statement = new EchStatementBuilder(report, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             Assert.NotNull(statement);
             Assert.Equal(2024, statement.TaxPeriod);
@@ -75,9 +71,9 @@ namespace IbkrToEtax.Tests
             var testDataPath = Path.Combine("TestData", "sample-ibkr-data.xml");
             var doc = XDocument.Load(testDataPath);
 
-            var report = new IbkrFlexReport(doc, new LoggerFactory());
+            var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
-            var statement = new EchStatementBuilder(report, new LoggerFactory()).BuildEchTaxStatement();
+            var statement = new EchStatementBuilder(report, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // Check AAPL dividend
             var applSecurity = statement.Depots[0].Securities.FirstOrDefault(s => s.SecurityName.Contains("APPLE"));
@@ -106,9 +102,9 @@ namespace IbkrToEtax.Tests
             var testDataPath = Path.Combine("TestData", "sample-ibkr-data.xml");
             var doc = XDocument.Load(testDataPath);
 
-            var report = new IbkrFlexReport(doc, new LoggerFactory());
+            var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
-            var statement = new EchStatementBuilder(report, new LoggerFactory()).BuildEchTaxStatement();
+            var statement = new EchStatementBuilder(report, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // Find cash position
             var cashSecurity = statement.Depots[0].Securities.FirstOrDefault(s => s.SecurityName == "Cash Balance");
@@ -125,9 +121,9 @@ namespace IbkrToEtax.Tests
             var testDataPath = Path.Combine("TestData", "sample-ibkr-data.xml");
             var doc = XDocument.Load(testDataPath);
 
-            var report = new IbkrFlexReport(doc, new LoggerFactory());
+            var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
-            var statement = new EchStatementBuilder(report, new LoggerFactory()).BuildEchTaxStatement();
+            var statement = new EchStatementBuilder(report, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // Check that trades were converted to stock mutations
             var applSecurity = statement.Depots[0].Securities.FirstOrDefault(s => s.SecurityName.Contains("APPLE"));

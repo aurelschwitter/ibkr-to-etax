@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Xml;
+using Microsoft.Extensions.Logging;
 using ZXing;
 using ZXing.Common;
 using ZXing.SkiaSharp;
@@ -77,22 +78,22 @@ namespace IbkrToEtax
         private const int BARCODE_MARGIN_MM = 5;
         private const int BARCODE_TOP_MARGIN_MM = 10;
 
-        public static void GeneratePdfWithBarcodes(string xmlFilePath, string outputPdfPath)
+        public static void GeneratePdfWithBarcodes(string xmlFilePath, string outputPdfPath, ILogger? logger = null)
         {
-            Console.WriteLine($"Generating PDF with PDF417 barcodes (eCH-0196 format) from {xmlFilePath}...");
+            logger?.LogInformation("Generating PDF with PDF417 barcodes (eCH-0196 format) from {XmlFilePath}...", xmlFilePath);
 
             // Read and compress XML content using zlib/DEFLATE
             string xmlContent = File.ReadAllText(xmlFilePath, Encoding.UTF8);
             byte[] compressedData = CompressData(Encoding.UTF8.GetBytes(xmlContent));
-            Console.WriteLine($"Compressed XML from {xmlContent.Length} to {compressedData.Length} bytes (zlib/DEFLATE)");
+            logger?.LogInformation("Compressed XML from {OriginalSize} to {CompressedSize} bytes (zlib/DEFLATE)", xmlContent.Length, compressedData.Length);
 
             // Generate unique barcode ID (UUID format as per eCH-0196)
             string barcodeId = Guid.NewGuid().ToString("D"); // Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
             // Split into chunks
             var chunks = SplitIntoChunks(compressedData);
-            Console.WriteLine($"Split into {chunks.Count} PDF417 barcode segment(s)");
-            Console.WriteLine($"Barcode ID: {barcodeId}");
+            logger?.LogInformation("Split into {ChunkCount} PDF417 barcode segment(s)", chunks.Count);
+            logger?.LogInformation("Barcode ID: {BarcodeId}", barcodeId);
 
             // Generate PDF417 codes with Structured Append
             var barcodeImages = GeneratePdf417Codes(chunks, barcodeId);
@@ -100,7 +101,7 @@ namespace IbkrToEtax
             // Create PDF with summary page
             CreatePdf(outputPdfPath, barcodeImages, chunks.Count, barcodeId, xmlContent);
 
-            Console.WriteLine($"✓ Generated PDF with PDF417 barcodes: {outputPdfPath}");
+            logger?.LogInformation("✓ Generated PDF with PDF417 barcodes: {OutputPath}", outputPdfPath);
         }
 
         private static byte[] CompressData(byte[] data)
@@ -142,8 +143,6 @@ namespace IbkrToEtax
                 // Use raw compressed data directly without headers
                 // First barcode contains zlib header, subsequent barcodes contain raw DEFLATE continuation
                 byte[] barcodeData = chunks[i];
-
-                Console.WriteLine($"  PDF417 segment {i + 1}/{chunks.Count}: {barcodeData.Length} bytes");
 
                 // Generate PDF417 code using ZXing with eCH-0270 specifications
                 // [MUSS] 13 columns, 35 rows for ALL segments (including last)

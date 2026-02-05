@@ -24,8 +24,8 @@ namespace IbkrToEtax
             PrintAccountValues(summary);
             PrintOtherMetrics(summary);
 
-            Console.WriteLine();
-            _logger.LogInformation("===========================");
+            _logger.LogInformation("\n===========================");
+
         }
 
         private void PrintDividendsByCurrency(FinancialSummary summary)

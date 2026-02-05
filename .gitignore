@@ -82,3 +82,5 @@ desktop.ini
 # Sensitive files
 *.p12
 *.pfx
+
+*.log
