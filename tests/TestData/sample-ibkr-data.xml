@@ -30,6 +30,11 @@
         <CashTransaction accountId="U12345" acctAlias="" model="" currency="USD" fxRateToBase="0.85" assetCategory="STK" symbol="MSFT" description="MICROSOFT CORP(US5949181045) Cash Dividend USD 0.75 per Share - US Tax" conid="272093" securityID="US5949181045" securityIDType="ISIN" cusip="594918104" isin="US5949181045" underlyingConid="" underlyingSymbol="" issuer="" multiplier="1" strike="" expiry="" putCall="" principalAdjustFactor="" dateTime="2024-08-15" settleDate="2024-08-15" amount="-1.43" type="Withholding Tax" tradeID="" code="" transactionID="1234567895" reportDate="2024-08-15" clientReference="" actionID="987654321" levelOfDetail="DETAIL"/>
       </CashTransactions>
       
+      <SecuritiesInfo>
+        <SecurityInfo accountId="U12345" acctAlias="" model="" conid="265598" securityID="US0378331005" securityIDType="ISIN" symbol="AAPL" description="APPLE INC" assetCategory="STK" subCategory="" underlyingConid="" underlyingSymbol="" issuer="" multiplier="1" strike="" expiry="" putCall="" principalAdjustFactor="" maturity="" issueDate="" underlyingSecurityID="" underlyingListingExchange="" code="" cusip="037833100" isin="US0378331005" listingExchange="NASDAQ" underlyingCategory="" securityIDs="" />
+        <SecurityInfo accountId="U12345" acctAlias="" model="" conid="272093" securityID="US5949181045" securityIDType="ISIN" symbol="MSFT" description="MICROSOFT CORP" assetCategory="STK" subCategory="" underlyingConid="" underlyingSymbol="" issuer="" multiplier="1" strike="" expiry="" putCall="" principalAdjustFactor="" maturity="" issueDate="" underlyingSecurityID="" underlyingListingExchange="" code="" cusip="594918104" isin="US5949181045" listingExchange="NASDAQ" underlyingCategory="" securityIDs="" />
+      </SecuritiesInfo>
+      
       <FIFOPerformanceSummaryInBase />
       
     </FlexStatement>
