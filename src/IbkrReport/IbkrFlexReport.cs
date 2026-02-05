@@ -71,35 +71,41 @@ namespace IbkrToEtax.IbkrReport
                 .Select(op => new IbkrOpenPosition(op))
                 .Where(op => op.LevelOfDetail == "SUMMARY")
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} open positions from XML", OpenPositions.Count);
 
             Trades = flexStatement.Element("Trades")?
                 .Elements("Trade")
                 .Select(t => new IbkrTrade(t))
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} trades from XML", Trades.Count);
 
             var cashTransactions = flexStatement.Element("CashTransactions")?
                 .Elements("CashTransaction")
                 .Select(ct => new IbkrCashTransaction(ct))
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} cash transactions from XML", cashTransactions.Count);
 
             EquitySummaryList = flexStatement.Element("EquitySummaryInBase")?
                 .Elements("EquitySummaryByReportDateInBase")
                 .Select(es => new IbkrEquitySummary(es))
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} equity summary entries from XML", EquitySummaryList.Count);
 
             FifoTransactions = flexStatement.Element("FIFOPerformanceSummaryInBase")?
                 .Elements("FIFOPerformanceSummaryUnderlying")
                 .Select(ft => new IbkrFifoPerformanceSummary(ft))
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} FIFO performance summary entries from XML", FifoTransactions.Count);
 
             SecurityInfoList = flexStatement.Element("SecuritiesInfo")?
                 .Elements("SecurityInfo")
                 .Select(si => new IbkrSecurityInfo(si))
                 .ToList() ?? [];
+            _logger.LogInformation("Loaded {Count} security info entries from XML", SecurityInfoList.Count);
 
             // Split CashTransactions by types
-            DividendList = [.. cashTransactions.Where(ct => ct.Type == "Dividends")];
-            WithholdingTaxList = [.. cashTransactions.Where(ct => ct.Type == "Withholding Tax")];
+            DividendList = [.. cashTransactions.Where(ct => ct.Type == "Dividends" && ct.LevelOfDetail == "DETAIL")];
+            WithholdingTaxList = [.. cashTransactions.Where(ct => ct.Type == "Withholding Tax" && ct.LevelOfDetail == "SUMMARY")];
             DepositWithdrawalList = [.. cashTransactions.Where(ct => ct.Type == "Deposits/Withdrawals")];
             FeesList = [.. cashTransactions.Where(ct => ct.Type == "Other Fees")];
 
@@ -172,7 +178,6 @@ namespace IbkrToEtax.IbkrReport
             // check start date is after account opening date and should be january 1st
             if (!isFirstYearOfAccount && StartDate.Month != 1 && StartDate.Day != 1)
             {
-
                 _logger.LogError("Start date {StartDate} should be January 1st! Please check your export settings.", StartDate.ToShortDateString());
                 isValid = false;
             }
@@ -182,6 +187,30 @@ namespace IbkrToEtax.IbkrReport
             {
                 _logger.LogError("Start date {StartDate} and end date {EndDate} are not in the same year!", StartDate.ToShortDateString(), EndDate.ToShortDateString());
                 isValid = false;
+            }
+
+            if (SecurityInfoList.Count == 0)
+            {
+                _logger.LogError("SecurityInfo list is empty, please include \"Financial Instrument Information\" in your IBKR Flex Report export settings.");
+                isValid = false;
+            }
+
+            if (Trades.Count == 0)
+            {
+                _logger.LogWarning("No trades found in the report. Please check your statement if this is ok.");
+                _logger.LogWarning("-> Otherwise, please check if your IBKR Flex Report export settings include \"Trades\".");
+            }
+
+            if (DividendList.Count == 0)
+            {
+                _logger.LogWarning("No dividends found in the report. Please check your statement if this is ok.");
+                _logger.LogWarning("-> If you do have dividend entries in your statement but they are not showing up in the report, please check that your IBKR Flex Report export settings include \"Cash Transactions\" with type 'Dividends'.");
+            }
+
+            if (WithholdingTaxList.Count == 0)
+            {
+                _logger.LogWarning("No withholding tax entries found in the report. Please check your statement if this is ok.");
+                _logger.LogWarning("-> If you do have withholding tax entries in your statement but they are not showing up in the report, please check that your IBKR Flex Report export settings include \"Cash Transactions\" with type 'Withholding Tax'");
             }
 
             if (!isValid)
