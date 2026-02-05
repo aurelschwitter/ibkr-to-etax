@@ -43,7 +43,7 @@ namespace IbkrToEtax.Tests
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Equal(2, report.OpenPositions.Count); // Only SUMMARY level
       Assert.Equal(3, report.Trades.Count);
@@ -69,7 +69,7 @@ namespace IbkrToEtax.Tests
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Empty(report.OpenPositions);
       Assert.Empty(report.Trades);
@@ -95,7 +95,7 @@ namespace IbkrToEtax.Tests
 </FlexQueryResponse>";
 
       var doc = XDocument.Parse(xml);
-      var report = new IbkrFlexReport(doc, new LoggerFactory());
+      var report = new IbkrFlexReport(doc, TestLoggerFactory.Create());
 
       Assert.Equal(new DateTime(2024, 1, 1), report.StartDate);
       Assert.Equal(new DateTime(2024, 12, 31), report.EndDate);
@@ -116,7 +116,7 @@ namespace IbkrToEtax.Tests
 
       Assert.Throws<Exception>(() =>
       {
-        new IbkrFlexReport(doc, new LoggerFactory());
+        new IbkrFlexReport(doc, TestLoggerFactory.Create());
       });
     }
   }

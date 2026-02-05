@@ -36,7 +36,7 @@ namespace IbkrToEtax.Tests
         {
             var ibkrReport = CreateSampleDocument();
 
-            var result = new EchStatementBuilder(ibkrReport, new LoggerFactory()).BuildEchTaxStatement();
+            var result = new EchStatementBuilder(ibkrReport, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             Assert.NotNull(result);
             Assert.Equal(2024, result.TaxPeriod);
@@ -50,7 +50,7 @@ namespace IbkrToEtax.Tests
         {
             var ibkrReport = CreateSampleDocument();
 
-            var result = new EchStatementBuilder(ibkrReport, new LoggerFactory()).BuildEchTaxStatement();
+            var result = new EchStatementBuilder(ibkrReport, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // This test needs to be updated based on actual implementation
             Assert.NotNull(result);
@@ -62,7 +62,7 @@ namespace IbkrToEtax.Tests
         {
             var ibkrReport = CreateSampleDocumentWithCash(289.64m);
 
-            var result = new EchStatementBuilder(ibkrReport, new LoggerFactory()).BuildEchTaxStatement();
+            var result = new EchStatementBuilder(ibkrReport, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             var cashSecurity = result.Depots[0].Securities.FirstOrDefault(s => s.SecurityName == "Cash Balance");
             Assert.NotNull(cashSecurity);
@@ -77,7 +77,7 @@ namespace IbkrToEtax.Tests
         {
             var ibkrReport = CreateSampleDocument();
 
-            var result = new EchStatementBuilder(ibkrReport, new LoggerFactory()).BuildEchTaxStatement();
+            var result = new EchStatementBuilder(ibkrReport, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // This test needs actual dividend/withholding tax data in the document
             Assert.NotNull(result);
@@ -89,7 +89,7 @@ namespace IbkrToEtax.Tests
         {
             var ibkrReport = CreateSampleDocument();
 
-            var result = new EchStatementBuilder(ibkrReport, new LoggerFactory()).BuildEchTaxStatement();
+            var result = new EchStatementBuilder(ibkrReport, TestLoggerFactory.Create()).BuildEchTaxStatement();
 
             // This test needs actual dividend data in the document
             Assert.NotNull(result);
@@ -114,7 +114,7 @@ namespace IbkrToEtax.Tests
   </FlexStatements>
 </FlexQueryResponse>");
 
-            return new IbkrFlexReport(doc, new LoggerFactory());
+            return new IbkrFlexReport(doc, TestLoggerFactory.Create());
         }
 
         private IbkrFlexReport CreateSampleDocumentWithCash(decimal cashAmount)
@@ -135,7 +135,7 @@ namespace IbkrToEtax.Tests
   </FlexStatements>
 </FlexQueryResponse>");
 
-            return new IbkrFlexReport(doc, new LoggerFactory());
+            return new IbkrFlexReport(doc, TestLoggerFactory.Create());
         }
     }
 }

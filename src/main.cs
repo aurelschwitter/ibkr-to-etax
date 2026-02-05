@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using CommandLine;
 using IbkrToEtax.IbkrReport;
 using Microsoft.Extensions.Logging;
+using NLog.Extensions.Logging;
 
 namespace IbkrToEtax
 {
@@ -42,15 +43,12 @@ namespace IbkrToEtax
 
         static int Main(string[] args)
         {
-            // Configure logging
+            // Configure logging with NLog
             _loggerFactory = LoggerFactory.Create(builder =>
             {
-                builder
-                    .AddSimpleConsole(options =>
-                    {
-                        options.SingleLine = true;
-                    })
-                    .SetMinimumLevel(LogLevel.Information);
+                builder.ClearProviders();
+                builder.SetMinimumLevel(LogLevel.Trace);
+                builder.AddNLog();
             });
             _logger = _loggerFactory.CreateLogger<Program>();
 
