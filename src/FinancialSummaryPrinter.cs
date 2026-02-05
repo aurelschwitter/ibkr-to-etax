@@ -24,22 +24,7 @@ namespace IbkrToEtax
             PrintAccountValues(summary);
             PrintOtherMetrics(summary);
 
-            Console.WriteLine();
-            _logger.LogInformation("===========================");
-
-            Console.WriteLine();
-            Console.WriteLine("=== STOCK SUMMARY ===");
-
-            foreach (var position in report.SummaryPerPositionList)
-            {
-                _logger.LogInformation("ISIN: {Isin}, Symbol: {Symbol}, Description: {Description}, TaxValue: {Pnl:F2} CHF",
-                    position.Isin, position.SecurityInfo.Symbol, position.SecurityInfo.Description, position?.OpenPosition?.GetPositionValue(_logger));
-                foreach (var d in position?.DividendList ?? [])
-                {
-                    _logger.LogInformation(" ->  Dividend: {Date}: {Amount} {Currency} ({AmountChf:F2} CHF)",
-                        d.ReportDate.ToShortDateString(), d.Amount, d.Currency, DataHelper.ConvertToCHF(d, _logger));
-                }
-            }
+            _logger.LogInformation("\n===========================");
 
         }
 

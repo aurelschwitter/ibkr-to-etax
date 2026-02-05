@@ -105,7 +105,7 @@ namespace IbkrToEtax.IbkrReport
 
             // Split CashTransactions by types
             DividendList = [.. cashTransactions.Where(ct => ct.Type == "Dividends" && ct.LevelOfDetail == "DETAIL")];
-            WithholdingTaxList = [.. cashTransactions.Where(ct => ct.Type == "Withholding Tax" && ct.LevelOfDetail == "SUMMARY")];
+            WithholdingTaxList = [.. cashTransactions.Where(ct => ct.Type == "Withholding Tax" && ct.LevelOfDetail == "DETAIL")];
             DepositWithdrawalList = [.. cashTransactions.Where(ct => ct.Type == "Deposits/Withdrawals")];
             FeesList = [.. cashTransactions.Where(ct => ct.Type == "Other Fees")];
 

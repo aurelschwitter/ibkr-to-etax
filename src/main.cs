@@ -104,7 +104,7 @@ namespace IbkrToEtax
                 _logger!.LogInformation("Output PDF: {OutputPdf}", outputPdf);
                 Console.WriteLine();
 
-                PdfBarcodeGenerator.GeneratePdfWithBarcodes(opts.XmlFile, outputPdf);
+                PdfBarcodeGenerator.GeneratePdfWithBarcodes(opts.XmlFile, outputPdf, _logger);
 
                 Console.WriteLine();
                 _logger!.LogInformation("✓ PDF generated successfully");

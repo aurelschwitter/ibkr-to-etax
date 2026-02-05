@@ -6,6 +6,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Schema;
+using Microsoft.Extensions.Logging;
 using ZXing;
 using ZXing.SkiaSharp;
 using iText.Kernel.Pdf;
@@ -39,8 +40,9 @@ namespace IbkrToEtax
         /// </summary>
         /// <param name="pdfPath">Path to the PDF file</param>
         /// <param name="xsdPath">Optional path to the eCH-0196 XSD schema for validation</param>
+        /// <param name="logger">Optional logger for output</param>
         /// <returns>ValidationResult containing validation status and details</returns>
-        public static ValidationResult ValidatePdf(string pdfPath, string? xsdPath = null)
+        public static ValidationResult ValidatePdf(string pdfPath, string? xsdPath = null, ILogger? logger = null)
         {
             var result = new ValidationResult { IsValid = true };
 
@@ -53,17 +55,17 @@ namespace IbkrToEtax
                     return result;
                 }
 
-                Console.WriteLine($"Validating PDF against eCH-0196 standard: {pdfPath}");
+                logger?.LogInformation("Validating PDF against eCH-0196 standard: {PdfPath}", pdfPath);
 
                 using (var pdfReader = new PdfReader(pdfPath))
                 using (var pdfDocument = new PdfDocument(pdfReader))
                 {
                     int pageCount = pdfDocument.GetNumberOfPages();
                     result.Metadata["PageCount"] = pageCount;
-                    Console.WriteLine($"  PDF has {pageCount} page(s)");
+                    logger?.LogInformation("  PDF has {PageCount} page(s)", pageCount);
 
                     // Step 1: Validate CODE128C barcodes on each page
-                    bool code128ValidationResult = ValidateCode128Barcodes(pdfDocument, result);
+                    bool code128ValidationResult = ValidateCode128Barcodes(pdfDocument, result, logger);
                     if (!code128ValidationResult)
                     {
                         result.IsValid = false;
@@ -80,7 +82,7 @@ namespace IbkrToEtax
                         var directBarcodes = (List<string>)result.Metadata["DirectXmlBarcodes"];
                         if (directBarcodes.Count > 0)
                         {
-                            Console.WriteLine($"  ✓ Found {directBarcodes.Count} direct zlib/DEFLATE compressed barcode(s)");
+                            logger?.LogInformation("  ✓ Found {Count} direct zlib/DEFLATE compressed barcode(s)", directBarcodes.Count);
                             
                             // Pass all barcodes to decompress - they'll be concatenated
                             xmlContent = DecompressDirectXmlBarcode(directBarcodes, result);
@@ -126,35 +128,35 @@ namespace IbkrToEtax
                     else
                     {
                         result.Warnings.Add("No valid PDF417 barcodes with extractable data found (may use alternative eCH-0196 encoding)");
-                        Console.WriteLine("  ⚠ No extractable PDF417 data (alternative implementation or no embedded XML)");
+                        logger?.LogWarning("  ⚠ No extractable PDF417 data (alternative implementation or no embedded XML)");
                     }
                 }
 
                 if (result.IsValid)
                 {
-                    Console.WriteLine("  ✓ PDF conforms to eCH-0196 standard");
+                    logger?.LogInformation("  ✓ PDF conforms to eCH-0196 standard");
                 }
                 else
                 {
-                    Console.WriteLine($"  ✗ PDF validation failed with {result.Errors.Count} error(s)");
+                    logger?.LogError("  ✗ PDF validation failed with {ErrorCount} error(s)", result.Errors.Count);
                 }
             }
             catch (Exception ex)
             {
                 result.IsValid = false;
                 result.Errors.Add($"Validation exception: {ex.Message}");
-                Console.WriteLine($"  ✗ Validation error: {ex.Message}");
+                logger?.LogError("  ✗ Validation error: {Message}", ex.Message);
             }
 
             return result;
         }
 
-        private static bool ValidateCode128Barcodes(PdfDocument pdfDocument, ValidationResult result)
+        private static bool ValidateCode128Barcodes(PdfDocument pdfDocument, ValidationResult result, ILogger? logger = null)
         {
             bool allValid = true;
             int pageCount = pdfDocument.GetNumberOfPages();
 
-            Console.WriteLine("  Validating CODE128C barcodes...");
+            logger?.LogInformation("  Validating CODE128C barcodes...");
 
             for (int pageNum = 1; pageNum <= pageCount; pageNum++)
             {
@@ -205,7 +207,7 @@ namespace IbkrToEtax
                     result.Warnings.Add($"Page {pageNum}: CODE128 indicates no 2D barcode present");
                 }
 
-                Console.WriteLine($"    Page {pageNum}: CODE128 barcode valid (Form: {formNumber}, Version: {version}, Page: {pageNumber}, Has2D: {has2DBarcode})");
+                logger?.LogInformation("    Page {PageNum}: CODE128 barcode valid (Form: {FormNumber}, Version: {Version}, Page: {PageNumber}, Has2D: {Has2DBarcode})", pageNum, formNumber, version, pageNumber, has2DBarcode);
             }
 
             return allValid;

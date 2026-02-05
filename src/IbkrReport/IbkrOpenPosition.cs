@@ -70,8 +70,8 @@ namespace IbkrToEtax.IbkrReport
             else
             {
                 _logger.LogWarning("Position of symbol {Symbol}, isin {isin} is missing position value information.",
-                                   Symbol ?? "",
-                                   Isin ?? "");
+                                   Symbol,
+                                   Isin);
                 return 0;
             }
         }

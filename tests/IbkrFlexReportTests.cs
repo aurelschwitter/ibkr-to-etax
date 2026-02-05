@@ -32,11 +32,16 @@ namespace IbkrToEtax.Tests
         <Trade accountId=""U12345"" symbol=""GOOG"" />
       </Trades>
       <CashTransactions>
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""100.00"" />
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""50.00"" />
-        <CashTransaction accountId=""U12345"" type=""Withholding Tax"" amount=""-15.00"" />
-        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""200.00"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""100.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""50.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Withholding Tax"" amount=""-15.00"" levelOfDetail=""DETAIL"" />
+        <CashTransaction accountId=""U12345"" type=""Dividends"" amount=""200.00"" levelOfDetail=""DETAIL"" />
       </CashTransactions>
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""AAPL"" />
+        <SecurityInfo symbol=""MSFT"" />
+        <SecurityInfo symbol=""GOOG"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
