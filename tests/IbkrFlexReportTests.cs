@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Xml.Linq;
 using IbkrToEtax.IbkrReport;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IbkrToEtax.Tests
@@ -17,7 +13,7 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase>
         <EquitySummaryByReportDateInBase accountId=""U12345"" reportDate=""2024-12-31"" cash=""0"" />
       </EquitySummaryInBase>
@@ -63,11 +59,14 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase />
       <OpenPositions />
       <Trades />
       <CashTransactions />
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""DUMMY"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
@@ -89,11 +88,14 @@ namespace IbkrToEtax.Tests
 <FlexQueryResponse>
   <FlexStatements>
     <FlexStatement accountId=""U12345"" fromDate=""2024-01-01"" toDate=""2024-12-31"">
-      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" />
+      <AccountInformation accountId=""U12345"" currency=""CHF"" state=""CH-ZH"" dateOpened=""2022-01-01"" dateFunded=""2022-01-01"" />
       <EquitySummaryInBase />
       <OpenPositions />
       <Trades />
       <CashTransactions />
+      <SecuritiesInfo>
+        <SecurityInfo symbol=""DUMMY"" />
+      </SecuritiesInfo>
       <FIFOPerformanceSummaryInBase />
     </FlexStatement>
   </FlexStatements>
