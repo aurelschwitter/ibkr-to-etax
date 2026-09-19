@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<taxStatement xmlns="http://www.ech.ch/xmlns/eCH-0196/2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.ech.ch/xmlns/eCH-0196/2 http://www.ech.ch/xmlns/eCH-0196/2/eCH-0196-2-2.xsd" id="CH0000000000000U123452024123101" creationDate="2026-09-19T18:28:06" taxPeriod="2024" periodFrom="2024-01-01" periodTo="2024-12-31" country="CH" canton="ZH" totalTaxValue="6409.64" totalGrossRevenueA="0.000" totalGrossRevenueB="11.382" totalGrossRevenueBCanton="11.382" totalGrossRevenueACanton="0.000" totalWithHoldingTaxClaim="1.522" minorVersion="2">
+  <institution name="Interactive Brokers" />
+  <client clientNumber="U12345" />
+  <listOfSecurities totalTaxValue="6409.64" totalGrossRevenueA="0.000" totalGrossRevenueB="11.382" totalGrossRevenueBCanton="11.382" totalGrossRevenueACanton="0.000" totalWithHoldingTaxClaim="1.522" totalLumpSumTaxCredit="0.00" totalNonRecoverableTax="0.00" totalAdditionalWithHoldingTaxUSA="0.000" totalGrossRevenueIUP="0.00" totalGrossRevenueConversion="0.00">
+    <depot depotNumber="U12345">
+      <security positionId="1" isin="US0378331005" country="" currency="" quotationType="PIECE" securityCategory="SHARE" securityName="APPLE INC">
+        <taxValue referenceDate="2024-12-31" quotationType="PIECE" quantity="10" balanceCurrency="" unitPrice="150.00" value="1275.00" />
+        <payment name="Dividendenzahlung" paymentDate="2024-05-15" quotationType="PIECE" quantity="0" amountCurrency="CHF" amount="2.0400" grossRevenueA="0" grossRevenueB="2.0400" withHoldingTaxClaim="0.3060" />
+        <stock name="Kauf" referenceDate="2024-03-15" mutation="1" quotationType="PIECE" quantity="10" balanceCurrency="" unitPrice="145.00" value="1450.00" />
+      </security>
+      <security positionId="2" isin="US5949181045" country="" currency="" quotationType="PIECE" securityCategory="SHARE" securityName="MICROSOFT CORP">
+        <taxValue referenceDate="2024-12-31" quotationType="PIECE" quantity="15" balanceCurrency="" unitPrice="380.00" value="4845.00" />
+        <payment name="Dividendenzahlung" paymentDate="2024-08-15" quotationType="PIECE" quantity="0" amountCurrency="CHF" amount="9.3415" grossRevenueA="0" grossRevenueB="9.3415" withHoldingTaxClaim="1.2155" />
+        <stock name="Kauf" referenceDate="2024-04-20" mutation="1" quotationType="PIECE" quantity="15" balanceCurrency="" unitPrice="370.00" value="5550.00" />
+      </security>
+      <security positionId="3" country="CH" currency="CHF" quotationType="PIECE" securityCategory="OTHER" securityName="Cash Balance">
+        <taxValue referenceDate="2024-12-31" quotationType="PIECE" quantity="1" balanceCurrency="CHF" unitPrice="289.64" value="289.64" />
+      </security>
+    </depot>
+  </listOfSecurities>
+</taxStatement>
