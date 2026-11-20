@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
@@ -9,12 +9,10 @@ namespace IbkrToEtax
     {
         public static XDocument GenerateEchXml(EchTaxStatement statement)
         {
-            // Define namespaces as per eCH-0196 specification
+            // Define namespaces as per eCH-0196 specification. Real statements (see the
+            // example in the eCH-0196 Technische Wegleitung) use eCH-0196 as the DEFAULT
+            // namespace with an unprefixed root element.
             XNamespace ech0196 = "http://www.ech.ch/xmlns/eCH-0196/2";
-            XNamespace ech0097 = "http://www.ech.ch/xmlns/eCH-0097/4";
-            XNamespace ech0010 = "http://www.ech.ch/xmlns/eCH-0010/7";
-            XNamespace ech0008 = "http://www.ech.ch/xmlns/eCH-0008/3";
-            XNamespace ech0007 = "http://www.ech.ch/xmlns/eCH-0007/6";
             XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
 
             // Calculate totals (individual values remain unrounded, only totals are rounded per eCH-0196)
@@ -25,18 +23,16 @@ namespace IbkrToEtax
             string totalAdditionalWithHoldingTaxUSA = DataHelper.FormatTotal(statement.GetTotalAdditionalWithHoldingTaxUSA());
 
             var root = new XElement(ech0196 + "taxStatement",
-                // Namespace declarations
-                new XAttribute("xmlns", ech0007),
-                new XAttribute(XNamespace.Xmlns + "eCH-0010", ech0010),
-                new XAttribute(XNamespace.Xmlns + "eCH-0008", ech0008),
-                new XAttribute(XNamespace.Xmlns + "eCH-0097", ech0097),
-                new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
+                // Namespace declarations: eCH-0196 as default namespace, xsi:schemaLocation
+                // with namespace/URL pairs, matching the official example statements
+                new XAttribute("xmlns", ech0196),
                 new XAttribute(XNamespace.Xmlns + "xsi", xsi),
-                new XAttribute(xsi + "schemaLocation", "http://www.ech.ch/xmlns/eCH-0196/2"),
+                new XAttribute(xsi + "schemaLocation",
+                    "http://www.ech.ch/xmlns/eCH-0196/2 http://www.ech.ch/xmlns/eCH-0196/2/eCH-0196-2-2.xsd"),
 
                 // Attributes
                 new XAttribute("id", statement.Id),
-                new XAttribute("creationDate", statement.CreationDate.ToString("yyyy-MM-ddTHH:mm:ss.fff")),
+                new XAttribute("creationDate", statement.CreationDate.ToString("yyyy-MM-ddTHH:mm:ss")),
                 new XAttribute("taxPeriod", statement.TaxPeriod),
                 new XAttribute("periodFrom", statement.PeriodFrom.ToString("yyyy-MM-dd")),
                 new XAttribute("periodTo", statement.PeriodTo.ToString("yyyy-MM-dd")),
@@ -48,27 +44,18 @@ namespace IbkrToEtax
                 new XAttribute("totalGrossRevenueBCanton", totalGrossRevenueB),
                 new XAttribute("totalGrossRevenueACanton", totalGrossRevenueA),
                 new XAttribute("totalWithHoldingTaxClaim", totalWithHoldingTaxClaim),
-                new XAttribute("minorVersion", "21"),
+                // Minor version of the eCH-0196-2-2 schema (its version attribute is "2")
+                new XAttribute("minorVersion", "2"),
 
+                // No uid element: it is optional per the schema and Interactive Brokers
+                // has no Swiss UID - a placeholder would fail the UID checksum
                 new XElement(ech0196 + "institution",
-                    new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
-                    new XAttribute("name", statement.Institution),
-                    // Add UID element for Swiss institutions or foreign institutions with Swiss registration
-                    // For Interactive Brokers, we add a placeholder since they operate in Switzerland
-                    new XElement(ech0196 + "uid",
-                        new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
-                        new XAttribute(XNamespace.Xmlns + "eCH-0097", ech0097),
-                        new XElement(ech0097 + "uidOrganisationIdCategorie", "CHE"),
-                        new XElement(ech0097 + "uidOrganisationId", "999999999") // Placeholder for foreign institution
-                    )
-                ),
+                    new XAttribute("name", statement.Institution)),
 
                 new XElement(ech0196 + "client",
-                    new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                     new XAttribute("clientNumber", statement.ClientNumber)),
 
                 new XElement(ech0196 + "listOfSecurities",
-                    new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                     new XAttribute("totalTaxValue", totalTaxValue),
                     new XAttribute("totalGrossRevenueA", totalGrossRevenueA),
                     new XAttribute("totalGrossRevenueB", totalGrossRevenueB),
@@ -83,12 +70,10 @@ namespace IbkrToEtax
 
                     from depot in statement.Depots
                     select new XElement(ech0196 + "depot",
-                        new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                         new XAttribute("depotNumber", depot.DepotNumber),
 
                         from sec in depot.Securities
                         select new XElement(ech0196 + "security",
-                            new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                             new XAttribute("positionId", sec.PositionId),
                             string.IsNullOrEmpty(sec.Isin) ? null : new XAttribute("isin", sec.Isin),
                             new XAttribute("country", sec.Country),
@@ -98,7 +83,6 @@ namespace IbkrToEtax
                             new XAttribute("securityName", sec.SecurityName),
 
                             sec.TaxValue == null ? null : new XElement(ech0196 + "taxValue",
-                                new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                                 new XAttribute("referenceDate", sec.TaxValue.ReferenceDate.ToString("yyyy-MM-dd")),
                                 new XAttribute("quotationType", "PIECE"),
                                 new XAttribute("quantity", sec.TaxValue.Quantity),
@@ -108,7 +92,6 @@ namespace IbkrToEtax
 
                             from payment in sec.Payments
                             select new XElement(ech0196 + "payment",
-                                new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                                 payment.Name != null ? new XAttribute("name", payment.Name) : null,
                                 new XAttribute("paymentDate", payment.PaymentDate.ToString("yyyy-MM-dd")),
                                 payment.ExDate.HasValue ? new XAttribute("exDate", payment.ExDate.Value.ToString("yyyy-MM-dd")) : null,
@@ -123,7 +106,6 @@ namespace IbkrToEtax
 
                             from stock in sec.Stocks
                             select new XElement(ech0196 + "stock",
-                                new XAttribute(XNamespace.Xmlns + "eCH-0196", ech0196),
                                 stock.Name != null ? new XAttribute("name", stock.Name) : null,
                                 new XAttribute("referenceDate", stock.ReferenceDate.ToString("yyyy-MM-dd")),
                                 new XAttribute("mutation", stock.IsMutation ? "1" : "0"),
@@ -149,7 +131,7 @@ namespace IbkrToEtax
             echXml.Save(outputXmlPath);
 
             var depot = statement.Depots.First();
-            logger?.LogInformation("✓ Generated eCH-0196 tax statement: {OutputXmlPath}", outputXmlPath);
+            logger?.LogInformation("âœ“ Generated eCH-0196 tax statement: {OutputXmlPath}", outputXmlPath);
             logger?.LogInformation("  - {SecurityCount} securities", depot.Securities.Count);
             logger?.LogInformation("  - {StockCount} stock mutations", depot.Securities.Sum(s => s.Stocks.Count));
             logger?.LogInformation("  - {PaymentCount} dividend payments", depot.Securities.Sum(s => s.Payments.Count));

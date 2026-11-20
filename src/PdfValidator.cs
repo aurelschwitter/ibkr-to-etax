@@ -195,16 +195,18 @@ namespace IbkrToEtax
                     allValid = false;
                 }
 
-                // Accept versions 21 and 22
-                if (version != "21" && version != "22")
+                if (version != "22")
                 {
-                    result.Warnings.Add($"Page {pageNum}: Unexpected version '{version}' (expected '21' or '22')");
+                    result.Warnings.Add($"Page {pageNum}: Unexpected version '{version}' (expected '22' for eCH-0196 v2.2)");
                 }
 
-                // Only warn about missing 2D barcodes on pages after page 1 (summary page typically has no PDF417)
-                if (has2DBarcode != "1" && pageNum > 1)
+                // Per eCH-0196 v2.2 Barcode Generierung Wegleitung the "2D-Barcode-Blatt" digit
+                // must be 1 on barcode sheets (form 196) and 0 on statement sheets (form 197)
+                string expected2D = formNumber == "196" ? "1" : "0";
+                if (has2DBarcode != expected2D)
                 {
-                    result.Warnings.Add($"Page {pageNum}: CODE128 indicates no 2D barcode present");
+                    result.Errors.Add($"Page {pageNum}: CODE128 2D-barcode flag is '{has2DBarcode}' but form {formNumber} requires '{expected2D}'");
+                    allValid = false;
                 }
 
                 logger?.LogInformation("    Page {PageNum}: CODE128 barcode valid (Form: {FormNumber}, Version: {Version}, Page: {PageNumber}, Has2D: {Has2DBarcode})", pageNum, formNumber, version, pageNumber, has2DBarcode);
@@ -580,6 +582,10 @@ namespace IbkrToEtax
         {
             var pdf417Chunks = new Dictionary<int, byte[]>();
             var directXmlBarcodes = new List<string>(); // For non-chunked format
+            var macroSegments = new SortedDictionary<int, string>(); // Macro PDF417 (Structured Append) segments by index
+            var macroFileIds = new HashSet<string>();
+            int? macroSegmentCount = null;
+            string? macroFileName = null;
             string? barcodeId = null;
             int? totalChunks = null;
 
@@ -593,14 +599,46 @@ namespace IbkrToEtax
 
                 // Get ALL PDF417 barcodes from this page (not just the first)
                 var pdf417Barcodes = barcodes.Where(b => b.BarcodeFormat == BarcodeFormat.PDF_417).ToList();
-                
+
                 foreach (var pdf417Barcode in pdf417Barcodes)
                 {
                     try
                     {
                         string barcodeText = pdf417Barcode.Text;
                         byte[] barcodeData;
-                        
+
+                        // Macro PDF417 (Structured Append) - eCH-0196 compliant format.
+                        // The control block carries file ID, segment index and count, which
+                        // is exactly what tax software scanners use to reassemble the data.
+                        var macroMd = pdf417Barcode.ResultMetadata != null &&
+                                      pdf417Barcode.ResultMetadata.ContainsKey(ResultMetadataType.PDF417_EXTRA_METADATA)
+                            ? pdf417Barcode.ResultMetadata[ResultMetadataType.PDF417_EXTRA_METADATA] as ZXing.PDF417.PDF417ResultMetadata
+                            : null;
+
+                        if (macroMd != null && !string.IsNullOrEmpty(macroMd.FileId))
+                        {
+                            if (macroSegments.TryGetValue(macroMd.SegmentIndex, out var existingText))
+                            {
+                                // ZXing may detect the same barcode more than once
+                                if (existingText != barcodeText)
+                                {
+                                    result.Errors.Add($"Page {pageNum}: Conflicting data for macro segment {macroMd.SegmentIndex}");
+                                }
+                            }
+                            else
+                            {
+                                macroSegments[macroMd.SegmentIndex] = barcodeText;
+                                Console.WriteLine($"    Page {pageNum}: Macro PDF417 segment {macroMd.SegmentIndex + 1}/{(macroMd.SegmentCount > 0 ? macroMd.SegmentCount.ToString() : "?")} (fileId {macroMd.FileId})");
+                            }
+                            macroFileIds.Add(macroMd.FileId);
+                            if (macroMd.SegmentCount > 0)
+                            {
+                                macroSegmentCount = macroMd.SegmentCount;
+                            }
+                            macroFileName ??= macroMd.FileName;
+                            continue;
+                        }
+
                         // Detect format: check if it's zlib/DEFLATE compressed (external format)
                         byte[] textAsBytes = Encoding.GetEncoding("ISO-8859-1").GetBytes(barcodeText);
                         bool isZlibHeader = textAsBytes.Length >= 2 && textAsBytes[0] == 0x78 && 
@@ -739,12 +777,45 @@ namespace IbkrToEtax
                     }
                 }
             }
-            
-            // If we found direct XML barcodes, store them in metadata
-            if (directXmlBarcodes.Count > 0)
+
+            // Macro PDF417 (Structured Append) segments take precedence: verify their
+            // consistency and hand them to the decompressor in segment-index order
+            if (macroSegments.Count > 0)
             {
+                result.Metadata["BarcodeFormat"] = "Macro PDF417 (Structured Append) + zlib/DEFLATE";
+                result.Metadata["MacroFileId"] = string.Join(", ", macroFileIds);
+                if (macroFileName != null)
+                {
+                    result.Metadata["MacroFileName"] = macroFileName;
+                }
+                if (macroSegmentCount.HasValue)
+                {
+                    result.Metadata["MacroSegmentCount"] = macroSegmentCount.Value;
+                }
+
+                if (macroFileIds.Count > 1)
+                {
+                    result.Errors.Add($"Macro PDF417 file ID mismatch across segments: {string.Join(", ", macroFileIds)}");
+                }
+
+                int expectedCount = macroSegmentCount ?? macroSegments.Count;
+                for (int i = 0; i < expectedCount; i++)
+                {
+                    if (!macroSegments.ContainsKey(i))
+                    {
+                        result.Errors.Add($"Missing Macro PDF417 segment {i + 1} of {expectedCount}");
+                    }
+                }
+
+                result.Metadata["DirectXmlBarcodes"] = macroSegments.Values.ToList();
+                Console.WriteLine($"  ✓ Found {macroSegments.Count}/{expectedCount} Macro PDF417 segment(s), file ID {string.Join(", ", macroFileIds)}, file name {macroFileName ?? "-"}");
+            }
+            // Fallback: plain barcodes without macro metadata, in page-discovery order
+            else if (directXmlBarcodes.Count > 0)
+            {
+                result.Warnings.Add("PDF417 barcodes carry no Macro PDF417 (Structured Append) metadata - tax software import will likely fail");
                 result.Metadata["DirectXmlBarcodes"] = directXmlBarcodes;
-                Console.WriteLine($"  ✓ Found {directXmlBarcodes.Count} direct zlib/DEFLATE compressed barcode(s)");
+                Console.WriteLine($"  ✓ Found {directXmlBarcodes.Count} direct zlib/DEFLATE compressed barcode(s) without macro metadata");
             }
 
             return pdf417Chunks;
@@ -931,9 +1002,20 @@ namespace IbkrToEtax
             try
             {
                 Console.WriteLine($"  Validating against XSD schema: {xsdPath}");
-                
-                var schemas = new XmlSchemaSet();
+
+                // The eCH-0196 schema imports eCH-0007/0008/0010/0097 from www.ech.ch,
+                // so a resolver is needed to fetch them
+                var schemas = new XmlSchemaSet { XmlResolver = new XmlUrlResolver() };
                 schemas.Add(ECH_0196_NAMESPACE, xsdPath);
+                try
+                {
+                    schemas.Compile();
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"Could not resolve imported eCH schemas (offline?), skipping XSD validation: {ex.Message}");
+                    return true;
+                }
 
                 var doc = XDocument.Parse(xmlContent);
                 bool isValid = true;
