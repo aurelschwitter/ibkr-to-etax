@@ -1,6 +1,5 @@
 # ibkr-to-etax
 
-This has been updated for 2025 and will be updated for 2026. Initial repo was fantastic work and hopefully the pull request will be accepted. If not, please use this.
 
 > **Automate your Swiss tax filing**: Convert Interactive Brokers trading data to eCH-0196 compliant tax statements.
 
@@ -79,7 +78,7 @@ This generates:
 
 ### 5. Upload to Tax System
 
-Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax).
+Upload the generated XML/PDF file to your cantonal online tax portal (e.g., ZH eTax).
 
 ## 📖 IBKR Setup Guide
 
@@ -282,8 +281,6 @@ tests/
 
 Contributions are welcome! Areas where help is needed:
 
-- **PDF Barcode Generation**: Change the PDF comply with the cantonal tax systems:
-- ![error-zh-tax](./docs/error-zh-tax.png)
 - **Additional Cantons**: Testing with other cantonal tax systems
 - **Documentation**: Improving setup guides and examples
 - **Testing**: More unit tests and edge case coverage
