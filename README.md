@@ -1,6 +1,5 @@
 # ibkr-to-etax
 
-
 > **Automate your Swiss tax filing**: Convert Interactive Brokers trading data to eCH-0196 compliant tax statements.
 
 Simplify your Swiss tax declaration by automatically converting Interactive Brokers (IBKR) FlexQuery exports into eCH-0196 electronic tax statements compatible with Swiss cantonal tax systems.
@@ -155,12 +154,12 @@ Configure **Delivery Configuration**:
 
 ![Query parameters](docs/ibkr-query-parameters.png)
 
-| Parameter     | Value                                 |
-| ------------- | ------------------------------------- |
-| **Period**    | Custom Date Range                     |
-| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-01)   |
-| **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31)   |
-| **Format**    | XML                                   |
+| Parameter     | Value                               |
+| ------------- | ----------------------------------- |
+| **Period**    | Custom Date Range                   |
+| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-01) |
+| **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31) |
+| **Format**    | XML                                 |
 
 3. Click **Run** and download the generated XML file
 
