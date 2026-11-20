@@ -17,14 +17,17 @@ using iText.Kernel.Font;
 using iText.IO.Font.Constants;
 using SkiaSharp;
 using SharpCompress.Compressors.Deflate;
+using ZXing.PDF417;
 using ZXing.PDF417.Internal;
 
 namespace IbkrToEtax
 {
     public class PdfBarcodeGenerator
     {
-        // eCH-0270 Requirements:
+        // eCH-0196 Technische Wegleitung requirements:
         // [MUSS] DEFLATE compression for XML data (zlib format)
+        // [MUSS] Macro PDF417 (Structured Append): macro file name = taxStatement id,
+        //        macro file ID = 4 random codewords, delivered as separate metadata attributes
         // [MUSS] EC-Level 4 (ISO/IEC 24728:2006)
         // [MUSS] 6 blocks, 13 columns, 35 rows per barcode (including last segment)
         // [MUSS] Element size: width 0.04-0.042 cm, height 0.08 cm
@@ -33,7 +36,10 @@ namespace IbkrToEtax
         // [MUSS] Margins: Top 5cm, Left/Right/Bottom 2cm
         // [MUSS] Spacing: min 1cm between segments (larger between 3-4 for fold)
 
-        private const int MAX_PDF417_SIZE = 470; // Maximum bytes per PDF417 code segment (conservative for 13 cols, 35 rows, EC level 4)
+        // 13 cols x 35 rows at EC level 4 leaves 423 data codewords; the Macro PDF417
+        // control block (segment index, file ID, file name, segment count, terminator)
+        // costs ~30 of them, so at most 469 payload bytes fit. 460 keeps a small margin.
+        private const int MAX_PDF417_SIZE = 460;
 
         // PDF417 specifications as per eCH-0270
         private const int PDF417_COLUMNS = 13;
@@ -71,7 +77,7 @@ namespace IbkrToEtax
         // 1D CODE128C barcode specifications
         private const string FORM_NUMBER_SUMMARY = "197"; // Summary pages (no eCH-0196 data)
         private const string FORM_NUMBER_DATA = "196"; // Data pages (with eCH-0196 XML)
-        private const string VERSION_NUMBER = "21"; // Version 2.1
+        private const string VERSION_NUMBER = "22"; // eCH-0196 version 2.2
         private const string ORGANIZATION_NUMBER = "00000"; // 5-digit clearing number (placeholder)
         private const int BARCODE_HEIGHT_MM = 7;
         private const int BARCODE_WIDTH_MM = 38;
@@ -87,21 +93,46 @@ namespace IbkrToEtax
             byte[] compressedData = CompressData(Encoding.UTF8.GetBytes(xmlContent));
             logger?.LogInformation("Compressed XML from {OriginalSize} to {CompressedSize} bytes (zlib/DEFLATE)", xmlContent.Length, compressedData.Length);
 
-            // Generate unique barcode ID (UUID format as per eCH-0196)
-            string barcodeId = Guid.NewGuid().ToString("D"); // Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            // Macro PDF417 metadata per eCH-0196 Technische Wegleitung:
+            // file name = taxStatement id, file ID = 4 codewords
+            string statementId = ExtractStatementId(xmlContent);
+            string macroFileId = DeriveMacroFileId(compressedData);
 
             // Split into chunks
             var chunks = SplitIntoChunks(compressedData);
             logger?.LogInformation("Split into {ChunkCount} PDF417 barcode segment(s)", chunks.Count);
-            logger?.LogInformation("Barcode ID: {BarcodeId}", barcodeId);
+            logger?.LogInformation("Macro file name (statement ID): {StatementId}, file ID: {MacroFileId}", statementId, macroFileId);
 
-            // Generate PDF417 codes with Structured Append
-            var barcodeImages = GeneratePdf417Codes(chunks, barcodeId);
+            // Generate Macro PDF417 (Structured Append) segments
+            var barcodeImages = GeneratePdf417Codes(chunks, statementId, macroFileId);
 
             // Create PDF with summary page
-            CreatePdf(outputPdfPath, barcodeImages, chunks.Count, barcodeId, xmlContent);
+            CreatePdf(outputPdfPath, barcodeImages, chunks.Count, macroFileId, xmlContent);
 
             logger?.LogInformation("✓ Generated PDF with PDF417 barcodes: {OutputPath}", outputPdfPath);
+        }
+
+        private static string ExtractStatementId(string xmlContent)
+        {
+            var doc = new XmlDocument();
+            doc.LoadXml(xmlContent);
+            string? id = doc.DocumentElement?.Attributes?["id"]?.Value;
+            if (string.IsNullOrEmpty(id))
+                throw new InvalidOperationException("taxStatement id attribute missing - required as Macro PDF417 file name");
+            return id;
+        }
+
+        private static string DeriveMacroFileId(byte[] compressedData)
+        {
+            // 4 codewords derived from the payload hash, each mapped into 100-255 and
+            // rendered as 3 decimal digits (the codeword format ZXing expects for FileId)
+            byte[] hash = System.Security.Cryptography.SHA256.HashData(compressedData);
+            var sb = new StringBuilder();
+            for (int i = 0; i < 4; i++)
+            {
+                sb.Append((100 + hash[i] % 156).ToString("D3"));
+            }
+            return sb.ToString();
         }
 
         private static byte[] CompressData(byte[] data)
@@ -134,53 +165,56 @@ namespace IbkrToEtax
             return chunks;
         }
 
-        private static List<byte[]> GeneratePdf417Codes(List<byte[]> chunks, string barcodeId)
+        private static List<byte[]> GeneratePdf417Codes(List<byte[]> chunks, string statementId, string macroFileId)
         {
             var barcodeImages = new List<byte[]>();
 
             for (int i = 0; i < chunks.Count; i++)
             {
-                // Use raw compressed data directly without headers
-                // First barcode contains zlib header, subsequent barcodes contain raw DEFLATE continuation
-                byte[] barcodeData = chunks[i];
-
-                // Generate PDF417 code using ZXing with eCH-0270 specifications
-                // [MUSS] 13 columns, 35 rows for ALL segments (including last)
-                // [MUSS] EC-Level 4
-                // [MUSS] Image dimensions: 290 x 35 pixels
-                
-                // Pad smaller chunks with null bytes to ensure 35 rows are generated
-                // This is required by eCH-0270 - ALL barcodes must have exactly 35 rows
-                byte[] paddedData = barcodeData;
-                if (barcodeData.Length < MAX_PDF417_SIZE)
+                // Macro PDF417 (Structured Append) control block: segment index, file ID,
+                // file name (= taxStatement id) and segment count in every segment, plus the
+                // terminator codeword in the last one. This is what lets the scanner identify
+                // the segments and reassemble them in order - short chunks stay short, the
+                // encoder fills the fixed 13x35 symbol with proper pad codewords.
+                var macroMetadata = new PDF417MacroMetadata
                 {
-                    paddedData = new byte[MAX_PDF417_SIZE];
-                    Array.Copy(barcodeData, paddedData, barcodeData.Length);
-                    // Remaining bytes are already zero (null padding)
-                }
-                
+                    SegmentIndex = i,
+                    SegmentCount = chunks.Count,
+                    FileId = macroFileId,
+                    FileName = statementId,
+                    IsLastSegment = i == chunks.Count - 1,
+                };
+
+                var options = new ZXing.PDF417.PDF417EncodingOptions
+                {
+                    Height = PDF417_IMAGE_HEIGHT_PIXELS,
+                    Width = PDF417_IMAGE_WIDTH_PIXELS,
+                    Dimensions = new Dimensions(PDF417_COLUMNS, PDF417_COLUMNS, PDF417_ROWS, PDF417_ROWS),
+                    Margin = 0, // No margin - the 1cm exclusion zone is handled in the PDF layout
+                    ErrorCorrection = PDF417_ERROR_CORRECTION, // EC-Level 4
+                    Compaction = Compaction.BYTE,
+                    PureBarcode = true, // Ensure proper PDF417 rendering with start/stop patterns
+                    NoPadding = false // Pad codewords fill the fixed 35 rows
+                };
+                options.Hints[EncodeHintType.PDF417_MACRO_META_DATA] = macroMetadata;
+
                 var writer = new BarcodeWriter
                 {
                     Format = BarcodeFormat.PDF_417,
-                    Options = new ZXing.PDF417.PDF417EncodingOptions
-                    {
-                        Height = PDF417_IMAGE_HEIGHT_PIXELS,
-                        Width = PDF417_IMAGE_WIDTH_PIXELS,
-                        Dimensions = new Dimensions(PDF417_COLUMNS, PDF417_COLUMNS, PDF417_ROWS, PDF417_ROWS),
-                        Margin = 0, // No margin - eCH-0270 specifies 1cm exclusion zone in PDF layout
-                        ErrorCorrection = PDF417_ERROR_CORRECTION, // EC-Level 4
-                        Compaction = Compaction.BYTE,
-                        PureBarcode = true, // Ensure proper PDF417 rendering with start/stop patterns
-                        NoPadding = false // Allow padding to fill 35 rows
-                    },
+                    Options = options,
                 };
 
                 // Encode raw binary data directly using Latin1 to preserve byte values
-                string binaryString = Encoding.Latin1.GetString(paddedData);
+                string binaryString = Encoding.Latin1.GetString(chunks[i]);
                 using var bitmap = writer.Write(binaryString);
 
+                // The Wegleitung prescribes 290x35 px images: 1 px per module column and
+                // 1 px per symbol row. ZXing renders each row several pixels tall, so
+                // sample one line from the middle of each row band.
+                using var specBitmap = DownsampleToSpecResolution(bitmap);
+
                 // Convert SKBitmap to byte array (PNG)
-                using var image = SKImage.FromBitmap(bitmap);
+                using var image = SKImage.FromBitmap(specBitmap);
                 using var data = image.Encode(SKEncodedImageFormat.Png, 100);
                 barcodeImages.Add(data.ToArray());
             }
@@ -188,15 +222,37 @@ namespace IbkrToEtax
             return barcodeImages;
         }
 
+        private static SKBitmap DownsampleToSpecResolution(SKBitmap bitmap)
+        {
+            int rowBandHeight = bitmap.Height / PDF417_ROWS;
+            if (bitmap.Width != PDF417_IMAGE_WIDTH_PIXELS || rowBandHeight * PDF417_ROWS != bitmap.Height)
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected PDF417 matrix size {bitmap.Width}x{bitmap.Height}, expected {PDF417_IMAGE_WIDTH_PIXELS} wide with {PDF417_ROWS} uniform rows");
+            }
+
+            var result = new SKBitmap(PDF417_IMAGE_WIDTH_PIXELS, PDF417_ROWS);
+            for (int y = 0; y < PDF417_ROWS; y++)
+            {
+                int sourceY = y * rowBandHeight + rowBandHeight / 2;
+                for (int x = 0; x < PDF417_IMAGE_WIDTH_PIXELS; x++)
+                {
+                    result.SetPixel(x, y, bitmap.GetPixel(x, sourceY));
+                }
+            }
+            return result;
+        }
+
         private static byte[] GenerateCode128Barcode(int pageNumber, bool isDataPage, int orientation)
         {
-            // Build 16-digit CODE128C barcode for eCH-0196
-            // Format: 197/196 (form) + 21 (version) + 00000 (org) + 001 (page) + 0 (has2D) + 2 (orient) + 1 (direction)
-            // Note: Has2D flag is ALWAYS 0 even when PDF417 barcodes are present (per eCH-0196 spec)
+            // Build 16-digit CODE128C barcode per eCH-0196 v2.2 Barcode Generierung Wegleitung:
+            // 3 form number + 2 version + 5 organization + 3 page number
+            // + 1 "2D-Barcode-Blatt" flag (1 = page carries PDF417 Structured Append, 0 = no)
+            // + 1 orientation (0 = landscape) + 1 reading direction (2 = left/right edge, top to bottom)
             string formNumber = isDataPage ? FORM_NUMBER_DATA : FORM_NUMBER_SUMMARY;
-            int twoDBarcode = 0; // Always 0 per eCH-0196 specification
-            int posId = 3;
-            string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{posId}";
+            int twoDBarcode = isDataPage ? 1 : 0;
+            int readingDirection = 2;
+            string barcodeData = $"{formNumber}{VERSION_NUMBER}{ORGANIZATION_NUMBER}{pageNumber:D3}{twoDBarcode}{orientation}{readingDirection}";
 
             // Generate CODE128C barcode using ZXing
             var writer = new BarcodeWriter
@@ -218,7 +274,7 @@ namespace IbkrToEtax
             return data.ToArray();
         }
 
-        private static void CreatePdf(string outputPath, List<byte[]> barcodeImages, int totalChunks, string barcodeId, string xmlContent)
+        private static void CreatePdf(string outputPath, List<byte[]> barcodeImages, int totalChunks, string macroFileId, string xmlContent)
         {
             using var writer = new PdfWriter(outputPath);
             using var pdf = new PdfDocument(writer);
@@ -378,7 +434,7 @@ namespace IbkrToEtax
                 .SetFontSize(9)
                 .SetMarginTop(20)
                 .SetMarginLeft(60);
-            barcodeInfo.Add($"Barcode ID: {barcodeId}  |  ");
+            barcodeInfo.Add($"Macro File ID: {macroFileId}  |  ");
             barcodeInfo.Add($"Barcode Segments: {totalChunks}  |  ");
             barcodeInfo.Add($"Barcode Pages: {barcodePageCount}");
             document.Add(barcodeInfo);
@@ -486,7 +542,7 @@ namespace IbkrToEtax
             Console.WriteLine($"  Pages: {totalPages}");
             Console.WriteLine($"  Barcodes per page: {barcodesPerPage}");
             Console.WriteLine($"  Total barcodes: {barcodeImages.Count}");
-            Console.WriteLine($"  Barcode ID: {barcodeId}");
+            Console.WriteLine($"  Macro File ID: {macroFileId}");
             Console.WriteLine($"  Barcode dimensions: {PDF417_TARGET_WIDTH_CM:F2} × {PDF417_TARGET_HEIGHT_CM:F2} cm (scaled for 97% print)");
         }
     }

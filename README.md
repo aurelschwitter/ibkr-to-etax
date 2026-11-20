@@ -77,7 +77,7 @@ This generates:
 
 ### 5. Upload to Tax System
 
-Upload the generated XML file to your cantonal online tax portal (e.g., ZH eTax).
+Upload the generated XML/PDF file to your cantonal online tax portal (e.g., ZH eTax).
 
 ## 📖 IBKR Setup Guide
 
@@ -154,12 +154,12 @@ Configure **Delivery Configuration**:
 
 ![Query parameters](docs/ibkr-query-parameters.png)
 
-| Parameter     | Value                                 |
-| ------------- | ------------------------------------- |
-| **Period**    | Custom Date Range                     |
-| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-01)   |
-| **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31)   |
-| **Format**    | XML                                   |
+| Parameter     | Value                               |
+| ------------- | ----------------------------------- |
+| **Period**    | Custom Date Range                   |
+| **From Date** | 01-Jan-{TaxYear} (e.g., 2024-01-01) |
+| **To Date**   | 31-Dec-{TaxYear} (e.g., 2024-12-31) |
+| **Format**    | XML                                 |
 
 3. Click **Run** and download the generated XML file
 
@@ -280,8 +280,6 @@ tests/
 
 Contributions are welcome! Areas where help is needed:
 
-- **PDF Barcode Generation**: Change the PDF comply with the cantonal tax systems:
-- ![error-zh-tax](./docs/error-zh-tax.png)
 - **Additional Cantons**: Testing with other cantonal tax systems
 - **Documentation**: Improving setup guides and examples
 - **Testing**: More unit tests and edge case coverage
