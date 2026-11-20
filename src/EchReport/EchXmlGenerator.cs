@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
@@ -131,7 +131,7 @@ namespace IbkrToEtax
             echXml.Save(outputXmlPath);
 
             var depot = statement.Depots.First();
-            logger?.LogInformation("âœ“ Generated eCH-0196 tax statement: {OutputXmlPath}", outputXmlPath);
+            logger?.LogInformation("✓ Generated eCH-0196 tax statement: {OutputXmlPath}", outputXmlPath);
             logger?.LogInformation("  - {SecurityCount} securities", depot.Securities.Count);
             logger?.LogInformation("  - {StockCount} stock mutations", depot.Securities.Sum(s => s.Stocks.Count));
             logger?.LogInformation("  - {PaymentCount} dividend payments", depot.Securities.Sum(s => s.Payments.Count));
